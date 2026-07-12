@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import request from '@/utils/request'
 
 export const useUserStore = defineStore('user', () => {
@@ -41,7 +41,7 @@ export const useUserStore = defineStore('user', () => {
   // 检查用户是否是管理员（技术负责人）
   const isAdmin = computed(() => {
     if (!user.value || !user.value.role) return false
-    return user.value.role.name === '技术负责人' || user.value.role.permissions?.includes('all')
+    return user.value.role.name === '管理员' || user.value.role.permissions?.includes('all')
   })
 
   return { token, user, login, logout, getProfile, hasPermission, isAdmin }

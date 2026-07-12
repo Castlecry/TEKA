@@ -154,66 +154,107 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
     """
     Agent with Function Calling
     让LLM自主决定调用哪些工具来回答问题
-    stream_callback: 可选的流式回调函数，每生成一个token就调用
+
+    Args:
+        query: 用户查询
+        session_id: 会话 ID（用于 Redis 对话历史）
+        stream_callback: 可选的流式回调函数，每生成一个token就调用
+
+    Returns:
+        LLM 生成的最终回答
     """
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json",
     }
-    
-    # 第一轮：让LLM决定是否调用工具
+
+    # 加载对话历史
+    try:
+        from conversation_store import get_history
+        history = get_history(session_id)
+    except Exception:
+        history = []
+
+    # 构建消息列表（系统提示 + 历史 + 当前问题）
     messages = [
         {
             "role": "system",
-            "content": "你是一个智能助手，可以使用工具来帮助用户。如果需要使用工具，请调用相应的工具函数。"
-        },
-        {"role": "user", "content": query}
+            "content": (
+                "你是一个科技企业智能助手，可以使用工具来帮助用户解决问题。"
+                "可用的工具有：搜索知识库、联网搜索、数学计算、查看系统信息。"
+                "对于需要外部信息的问题，优先调用 search_knowledge_base 搜索本地知识库；"
+                "如果本地知识库没有找到相关信息，再考虑使用 web_search 联网搜索。"
+                "对于数学计算类问题，使用 calculate 工具。"
+                "请用中文回答，回答要准确、简洁、专业。"
+            )
+        }
     ]
-    
-    response = requests.post(
-        f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
-        headers=headers,
-        json={
-            "model": LLM_MODEL,
-            "messages": messages,
-            "tools": TOOLS,
-            "tool_choice": "auto"
-        },
-        timeout=60
-    )
-    response.raise_for_status()
-    
+    for msg in history:
+        messages.append(msg)
+    messages.append({"role": "user", "content": query})
+
+    try:
+        response = requests.post(
+            f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": LLM_MODEL,
+                "messages": messages,
+                "tools": TOOLS,
+                "tool_choice": "auto"
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+    except requests.RequestException as e:
+        error_msg = f"调用模型失败: {str(e)}"
+        print(f"[Agent] {error_msg}")
+        return error_msg
+
     result = response.json()
+    if "choices" not in result or not result["choices"]:
+        return "抱歉，模型暂时无法响应，请稍后再试。"
+
     message = result["choices"][0]["message"]
-    
+
     # 检查是否有工具调用
     if "tool_calls" in message and message["tool_calls"]:
-        # 执行工具调用
         tool_calls = message["tool_calls"]
-        
-        # 将assistant消息添加到历史
         messages.append(message)
-        
+
         # 执行每个工具调用
         for tool_call in tool_calls:
             tool_name = tool_call["function"]["name"]
-            tool_args = json.loads(tool_call["function"]["arguments"])
-            
+            try:
+                tool_args = json.loads(tool_call["function"]["arguments"])
+            except json.JSONDecodeError:
+                tool_args = {}
+
             print(f"[Agent] 调用工具: {tool_name}, 参数: {tool_args}")
-            
-            # 执行工具
+
             tool_result = execute_tool(tool_name, tool_args)
-            
-            # 将工具结果添加到消息历史
+
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call["id"],
                 "content": json.dumps(tool_result, ensure_ascii=False)
             })
-        
+
         # 第二轮：让LLM基于工具结果生成最终回答
+        return _generate_with_messages(headers, messages, stream_callback)
+
+    else:
+        # 没有工具调用，直接返回回答
+        content = message.get("content", "抱歉，我无法回答这个问题。")
         if stream_callback:
-            # 流式模式
+            stream_callback(content)
+        return content
+
+
+def _generate_with_messages(headers: dict, messages: list, stream_callback=None) -> str:
+    """基于消息历史生成最终回答（流式或非流式）"""
+    if stream_callback:
+        try:
             final_response = requests.post(
                 f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
                 headers=headers,
@@ -226,26 +267,30 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
                 timeout=60
             )
             final_response.raise_for_status()
-            
+
             answer = ""
             for line in final_response.iter_lines():
-                if line:
-                    line_str = line.decode("utf-8")
-                    if line_str.startswith("data: "):
-                        data_str = line_str[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            data = json.loads(data_str)
-                            delta = data["choices"][0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                answer += content
-                                stream_callback(content)
-                        except json.JSONDecodeError:
-                            continue
+                if not line:
+                    continue
+                line_str = line.decode("utf-8")
+                if line_str.startswith("data: "):
+                    data_str = line_str[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            answer += content
+                            stream_callback(content)
+                    except json.JSONDecodeError:
+                        continue
             return answer
-        else:
+        except requests.RequestException as e:
+            return f"生成回答时出错: {str(e)}"
+    else:
+        try:
             final_response = requests.post(
                 f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
                 headers=headers,
@@ -256,14 +301,7 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
                 timeout=60
             )
             final_response.raise_for_status()
-            
             final_result = final_response.json()
-            answer = final_result["choices"][0]["message"]["content"]
-            return answer
-    
-    else:
-        # 没有工具调用，直接返回回答
-        content = message.get("content", "抱歉，我无法回答这个问题。")
-        if stream_callback:
-            stream_callback(content)
-        return content
+            return final_result["choices"][0]["message"]["content"]
+        except (requests.RequestException, KeyError, IndexError) as e:
+            return f"生成回答时出错: {str(e)}"

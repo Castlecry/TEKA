@@ -236,12 +236,26 @@ def create_agent_graph():
 
 def run_agent(query: str, session_id: str = "default", stream_callback=None) -> str:
     """运行LangGraph智能体
-    stream_callback: 可选的流式回调函数，每生成一个token就调用
+
+    Args:
+        query: 用户查询
+        session_id: 会话 ID（用于对话历史）
+        stream_callback: 可选的流式回调函数，每生成一个token就调用
     """
+    # 加载对话历史
+    try:
+        from conversation_store import get_history
+        history = get_history(session_id, turns=5)  # LangGraph 上下文更长，限制 5 轮
+    except Exception:
+        history = []
+
     graph = create_agent_graph()
-    
+
     initial_state = {
-        "messages": [{"role": "user", "content": query}],
+        "messages": [
+            *history,
+            {"role": "user", "content": query}
+        ],
         "next_action": "analyze",
         "tool_calls": [],
         "tool_results": [],
@@ -249,13 +263,16 @@ def run_agent(query: str, session_id: str = "default", stream_callback=None) -> 
         "iteration": 0,
         "stream_callback": stream_callback
     }
-    
+
     print(f"\n[LangGraph] 开始处理查询: {query[:50]}...")
-    
-    # 运行图
-    final_state = graph.invoke(initial_state)
-    
-    answer = final_state.get("final_answer", "抱歉，我无法回答这个问题。")
-    print(f"[LangGraph] 生成答案完成，共 {len(answer)} 字符\n")
-    
-    return answer
+
+    try:
+        # 运行图
+        final_state = graph.invoke(initial_state)
+        answer = final_state.get("final_answer", "抱歉，我无法回答这个问题。")
+        print(f"[LangGraph] 生成答案完成，共 {len(answer)} 字符\n")
+        return answer
+    except Exception as e:
+        error_msg = f"LangGraph 智能体执行失败: {str(e)}"
+        print(f"[LangGraph] {error_msg}")
+        return error_msg

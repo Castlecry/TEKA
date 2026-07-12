@@ -19,6 +19,7 @@ if _BACKEND_DIR not in sys.path:
 
 import rag_chain as _rag_chain
 import conversation_store as _conv_store
+import redis_cache as _redis_cache
 from agent_tools import agent_with_tools
 from langgraph_agent import run_agent
 from config import TOP_K, WEB_SEARCH_COUNT
@@ -67,6 +68,14 @@ async def send_message(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # 速率限制检查
+    allowed, remaining = _redis_cache.check_rate_limit(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+
+    # 追踪热门问题
+    _redis_cache.track_question(message.message)
+
     conversation_id = message.conversation_id or str(uuid.uuid4())
 
     history = _conv_store.get_history(conversation_id)
@@ -78,14 +87,20 @@ async def send_message(
             query=message.message,
             session_id=conversation_id
         )
+        # Agent 不自动保存对话（内部已保留历史用于上下文），手动保存
+        _conv_store.save_message(conversation_id, "user", message.message)
+        _conv_store.save_message(conversation_id, "assistant", response)
     elif message.mode == "langgraph":
         # LangGraph模式：使用高级智能体编排
         response = run_agent(
             query=message.message,
             session_id=conversation_id
         )
+        # LangGraph 手动保存对话
+        _conv_store.save_message(conversation_id, "user", message.message)
+        _conv_store.save_message(conversation_id, "assistant", response)
     else:
-        # 默认RAG模式
+        # 默认RAG模式（rag_chain 内部自动保存对话到 Redis）
         response = _rag_chain.rag_query(
             query=message.message,
             session_id=conversation_id,
