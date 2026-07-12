@@ -53,6 +53,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Bot, User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
@@ -81,14 +82,11 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    const res = await userStore.login(form.username, form.password)
-    if (res.code === 200) {
-      router.push('/')
-    } else {
-      ElMessage.error(res.message || '登录失败')
-    }
+    await userStore.login(form.username, form.password)
+    router.push('/')
   } catch (error) {
-    ElMessage.error('登录失败，请检查网络')
+    const msg = error?.detail || '登录失败，请检查用户名和密码'
+    ElMessage.error(msg)
   } finally {
     loading.value = false
   }

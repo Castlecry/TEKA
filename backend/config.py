@@ -1,8 +1,10 @@
 """RAG系统配置"""
 
 import os
+from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # PostgreSQL
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")

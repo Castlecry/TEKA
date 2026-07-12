@@ -70,8 +70,9 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 
 const router = useRouter()
@@ -93,30 +94,16 @@ const rules = {
   department: [{ required: true, message: '请选择所属部门', trigger: 'change' }],
 }
 
-const knowledgeBases = ref([
-  {
-    id: 1,
-    name: '公司规章制度',
-    description: '包含员工手册、考勤制度、报销制度等',
-    department: '人事部',
-    owner: '张三',
-    document_count: 5,
-    created_at: '2024-01-15',
-    status: 'active',
-  },
-  {
-    id: 2,
-    name: '产品技术文档',
-    description: '产品API文档、技术架构文档',
-    department: '技术部',
-    owner: '李四',
-    document_count: 8,
-    created_at: '2024-01-20',
-    status: 'active',
-  },
-])
+const knowledgeBases = ref([])
 
-const loadKnowledgeBases = () => {}
+const loadKnowledgeBases = async () => {
+  try {
+    const data = await request.get('/knowledge-bases/')
+    knowledgeBases.value = data
+  } catch (error) {
+    ElMessage.error('加载知识库列表失败')
+  }
+}
 
 const viewDetail = (row) => {
   router.push(`/knowledge/${row.id}`)
@@ -124,10 +111,17 @@ const viewDetail = (row) => {
 
 const editKnowledge = (row) => {}
 
-const deleteKnowledge = (row) => {
-  ElMessageBox.confirm('确定删除该知识库？', '提示', { type: 'warning' }).then(() => {
+const deleteKnowledge = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该知识库？', '提示', { type: 'warning' })
+    await request.delete(`/knowledge-bases/${row.id}`)
     ElMessage.success('删除成功')
-  })
+    await loadKnowledgeBases()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
 const createKnowledge = async () => {
@@ -135,13 +129,28 @@ const createKnowledge = async () => {
   const valid = await formRef.value.validate()
   if (!valid) return
 
-  showCreateDialog.value = false
-  ElMessage.success('创建成功')
-  form.name = ''
-  form.description = ''
-  form.department = ''
-  form.owner = ''
+  try {
+    await request.post('/knowledge-bases/', {
+      name: form.name,
+      description: form.description,
+      department: form.department,
+      owner: form.owner,
+    })
+    showCreateDialog.value = false
+    ElMessage.success('创建成功')
+    form.name = ''
+    form.description = ''
+    form.department = ''
+    form.owner = ''
+    await loadKnowledgeBases()
+  } catch (error) {
+    ElMessage.error('创建失败')
+  }
 }
+
+onMounted(() => {
+  loadKnowledgeBases()
+})
 </script>
 
 <style scoped>

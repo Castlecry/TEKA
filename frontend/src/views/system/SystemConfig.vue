@@ -69,7 +69,9 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const config = reactive({
   document: {
@@ -93,9 +95,29 @@ const config = reactive({
   },
 })
 
-const saveConfig = () => {
-  ElMessage.success('配置保存成功')
+const loadConfig = async () => {
+  try {
+    const data = await request.get('/system/config/')
+    if (data) {
+      Object.assign(config, data)
+    }
+  } catch (error) {
+    // 配置加载失败时使用默认值
+  }
 }
+
+const saveConfig = async () => {
+  try {
+    await request.post('/system/config/', config)
+    ElMessage.success('配置保存成功')
+  } catch (error) {
+    ElMessage.error('配置保存失败')
+  }
+}
+
+onMounted(() => {
+  loadConfig()
+})
 </script>
 
 <style scoped>

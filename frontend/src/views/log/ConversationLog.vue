@@ -70,8 +70,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
+import request from '@/utils/request'
 
 const searchText = ref('')
 const dateRange = ref([])
@@ -79,18 +81,37 @@ const selectedUser = ref('')
 const showDetailDialog = ref(false)
 const selectedLog = ref(null)
 
-const logs = ref([
-  { id: 1, conversation_id: 'conv_001', user_id: 'admin', query: '公司的考勤制度是什么？', answer: '公司实行弹性工作制，工作时间为上午9点至下午6点，中午休息1小时...', source: '公司规章制度', created_at: '2024-01-20 10:30:00' },
-  { id: 2, conversation_id: 'conv_002', user_id: 'zhangsan', query: 'API文档在哪里？', answer: 'API文档位于产品技术文档知识库中，可以通过知识库管理页面查看...', source: '产品技术文档', created_at: '2024-01-20 11:15:00' },
-  { id: 3, conversation_id: 'conv_003', user_id: 'admin', query: '报销流程是怎样的？', answer: '报销流程如下：1.填写报销单 2.部门审批 3.财务审核 4.打款...', source: '公司规章制度', created_at: '2024-01-20 14:20:00' },
-])
+const logs = ref([])
 
-const loadLogs = () => {}
-
-const viewDetail = (row) => {
-  selectedLog.value = row
-  showDetailDialog.value = true
+const loadLogs = async () => {
+  try {
+    const params = {}
+    if (searchText.value) params.search = searchText.value
+    if (selectedUser.value) params.user_id = selectedUser.value
+    if (dateRange.value && dateRange.value.length === 2) {
+      params.start_date = dateRange.value[0]
+      params.end_date = dateRange.value[1]
+    }
+    const data = await request.get('/chat/sessions', { params })
+    logs.value = data
+  } catch (error) {
+    ElMessage.error('加载对话日志失败')
+  }
 }
+
+const viewDetail = async (row) => {
+  try {
+    const data = await request.get(`/chat/history/${row.conversation_id}`)
+    selectedLog.value = { ...row, ...data }
+    showDetailDialog.value = true
+  } catch (error) {
+    ElMessage.error('加载对话详情失败')
+  }
+}
+
+onMounted(() => {
+  loadLogs()
+})
 </script>
 
 <style scoped>

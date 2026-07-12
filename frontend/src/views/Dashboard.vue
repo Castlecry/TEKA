@@ -11,7 +11,7 @@
           <Component :is="icons.FolderOpen" />
         </div>
         <div class="stat-info">
-          <div class="stat-value">0</div>
+          <div class="stat-value">{{ stats.knowledgeBases }}</div>
           <div class="stat-label">知识库数量</div>
         </div>
       </el-card>
@@ -21,7 +21,7 @@
           <Component :is="icons.FileText" />
         </div>
         <div class="stat-info">
-          <div class="stat-value">0</div>
+          <div class="stat-value">{{ stats.documents }}</div>
           <div class="stat-label">文档数量</div>
         </div>
       </el-card>
@@ -31,7 +31,7 @@
           <Component :is="icons.MessageSquare" />
         </div>
         <div class="stat-info">
-          <div class="stat-value">0</div>
+          <div class="stat-value">{{ stats.todayConversations }}</div>
           <div class="stat-label">今日对话</div>
         </div>
       </el-card>
@@ -41,7 +41,7 @@
           <Component :is="icons.Users" />
         </div>
         <div class="stat-info">
-          <div class="stat-value">0</div>
+          <div class="stat-value">{{ stats.activeUsers }}</div>
           <div class="stat-label">活跃用户</div>
         </div>
       </el-card>
@@ -66,9 +66,48 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import { FolderOpen, FileText, MessageSquare, Users } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 const icons = { FolderOpen, FileText, MessageSquare, Users }
+
+const stats = ref({
+  knowledgeBases: 0,
+  documents: 0,
+  todayConversations: 0,
+  activeUsers: 0,
+})
+
+const loadStats = async () => {
+  try {
+    const [knowledgeBases, documents, sessions] = await Promise.all([
+      request.get('/knowledge-bases/'),
+      request.get('/documents/'),
+      request.get('/chat/sessions'),
+    ])
+
+    stats.value.knowledgeBases = knowledgeBases.length || 0
+    stats.value.documents = documents.length || 0
+
+    // 计算今日对话数
+    const today = new Date().toISOString().split('T')[0]
+    stats.value.todayConversations = sessions.filter(s =>
+      s.created_at && s.created_at.startsWith(today)
+    ).length || 0
+
+    // 计算活跃用户数（有对话记录的用户）
+    const uniqueUsers = new Set(sessions.map(s => s.user_id))
+    stats.value.activeUsers = uniqueUsers.size || 0
+  } catch (error) {
+    ElMessage.error('加载统计数据失败')
+  }
+}
+
+onMounted(() => {
+  loadStats()
+})
 </script>
 
 <style scoped>

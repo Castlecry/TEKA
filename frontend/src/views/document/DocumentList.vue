@@ -62,39 +62,83 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const searchText = ref('')
 const selectedKB = ref('')
 const showUploadDialog = ref(false)
+const fileList = ref([])
 
-const documents = ref([
-  { id: 1, filename: '员工手册.pdf', knowledge_base: '公司规章制度', size: '2.3MB', upload_time: '2024-01-15', chunk_count: 45, status: 'indexed' },
-  { id: 2, filename: '考勤制度.md', knowledge_base: '公司规章制度', size: '15KB', upload_time: '2024-01-16', chunk_count: 3, status: 'indexed' },
-  { id: 3, filename: '报销流程.docx', knowledge_base: '公司规章制度', size: '56KB', upload_time: '2024-01-17', chunk_count: 8, status: 'indexed' },
-  { id: 4, filename: 'API文档.pdf', knowledge_base: '产品技术文档', size: '5.1MB', upload_time: '2024-01-20', chunk_count: 120, status: 'indexed' },
-])
+const documents = ref([])
 
-const loadDocuments = () => {}
+const loadDocuments = async () => {
+  try {
+    const params = {}
+    if (searchText.value) params.search = searchText.value
+    if (selectedKB.value) params.knowledge_base_id = selectedKB.value
+    const data = await request.get('/documents/', { params })
+    documents.value = data
+  } catch (error) {
+    ElMessage.error('加载文档列表失败')
+  }
+}
 
-const previewDocument = (row) => {}
+const previewDocument = (row) => {
+  ElMessage.info('预览功能开发中')
+}
 
 const regenerateVector = (row) => {
   ElMessage.success('向量重新生成中')
 }
 
-const deleteDocument = (row) => {
-  ElMessageBox.confirm('确定删除该文档？', '提示', { type: 'warning' }).then(() => {
+const deleteDocument = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该文档？', '提示', { type: 'warning' })
+    await request.delete(`/documents/${row.id}`)
     ElMessage.success('删除成功')
-  })
+    await loadDocuments()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
-const handleFileChange = () => {}
-
-const uploadFiles = () => {
-  showUploadDialog.value = false
-  ElMessage.success('上传成功')
+const handleFileChange = (file) => {
+  fileList.value.push(file)
 }
+
+const uploadFiles = async () => {
+  if (fileList.value.length === 0) {
+    ElMessage.warning('请选择文件')
+    return
+  }
+
+  try {
+    for (const file of fileList.value) {
+      const formData = new FormData()
+      formData.append('file', file.raw)
+      if (selectedKB.value) {
+        formData.append('knowledge_base_id', selectedKB.value)
+      }
+      await request.post('/documents/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+    }
+    showUploadDialog.value = false
+    fileList.value = []
+    ElMessage.success('上传成功')
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error('上传失败')
+  }
+}
+
+onMounted(() => {
+  loadDocuments()
+})
 </script>
 
 <style scoped>

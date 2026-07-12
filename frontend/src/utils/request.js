@@ -28,6 +28,9 @@ instance.interceptors.response.use(
       localStorage.removeItem('user')
       window.location.href = '/login'
     }
+    if (error.response?.status === 422) {
+      return Promise.reject(error.response.data)
+    }
     return Promise.reject(error)
   }
 )

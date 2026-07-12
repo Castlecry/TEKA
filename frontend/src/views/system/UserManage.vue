@@ -82,12 +82,17 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const searchText = ref('')
 const selectedRole = ref('')
 const showCreateDialog = ref(false)
 const formRef = ref(null)
+const isEdit = ref(false)
+const editingUserId = ref(null)
+const roles = ref([])
 
 const form = reactive({
   username: '',
@@ -103,14 +108,28 @@ const rules = {
   email: [{ required: true, message: '请输入邮箱', trigger: 'blur' }],
 }
 
-const users = ref([
-  { id: 1, username: 'admin', email: 'admin@example.com', department: '技术部', role: 'admin', status: 'active', created_at: '2024-01-01' },
-  { id: 2, username: 'zhangsan', email: 'zhangsan@example.com', department: '技术部', role: 'dept_admin', status: 'active', created_at: '2024-01-10' },
-  { id: 3, username: 'lisi', email: 'lisi@example.com', department: '产品部', role: 'user', status: 'active', created_at: '2024-01-15' },
-  { id: 4, username: 'wangwu', email: 'wangwu@example.com', department: '市场部', role: 'user', status: 'inactive', created_at: '2024-01-20' },
-])
+const users = ref([])
 
-const loadUsers = () => {}
+const loadUsers = async () => {
+  try {
+    const params = {}
+    if (searchText.value) params.search = searchText.value
+    if (selectedRole.value) params.role = selectedRole.value
+    const data = await request.get('/users/', { params })
+    users.value = data
+  } catch (error) {
+    ElMessage.error('加载用户列表失败')
+  }
+}
+
+const loadRoles = async () => {
+  try {
+    const data = await request.get('/users/roles/')
+    roles.value = data
+  } catch (error) {
+    // 角色列表加载失败时使用默认值
+  }
+}
 
 const getRoleType = (role) => {
   const types = { admin: 'danger', dept_admin: 'warning', user: 'info' }
@@ -122,17 +141,41 @@ const getRoleName = (role) => {
   return names[role] || role
 }
 
-const toggleStatus = (row) => {
-  row.status = row.status === 'active' ? 'inactive' : 'active'
-  ElMessage.success(row.status === 'active' ? '已启用' : '已禁用')
+const toggleStatus = async (row) => {
+  const newStatus = row.status === 'active' ? 'inactive' : 'active'
+  try {
+    await request.put(`/users/${row.id}`, { ...row, status: newStatus })
+    row.status = newStatus
+    ElMessage.success(newStatus === 'active' ? '已启用' : '已禁用')
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
 }
 
-const editUser = (row) => {}
-
-const deleteUser = (row) => {
-  ElMessageBox.confirm('确定删除该用户？', '提示', { type: 'warning' }).then(() => {
-    ElMessage.success('删除成功')
+const editUser = (row) => {
+  isEdit.value = true
+  editingUserId.value = row.id
+  Object.assign(form, {
+    username: row.username,
+    password: '',
+    email: row.email,
+    department: row.department,
+    role: row.role,
   })
+  showCreateDialog.value = true
+}
+
+const deleteUser = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该用户？', '提示', { type: 'warning' })
+    await request.delete(`/users/${row.id}`)
+    ElMessage.success('删除成功')
+    await loadUsers()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
 const createUser = async () => {
@@ -140,10 +183,30 @@ const createUser = async () => {
   const valid = await formRef.value.validate()
   if (!valid) return
 
-  showCreateDialog.value = false
-  ElMessage.success('创建成功')
-  Object.assign(form, { username: '', password: '', email: '', department: '', role: '' })
+  try {
+    if (isEdit.value) {
+      const payload = { ...form }
+      if (!payload.password) delete payload.password
+      await request.put(`/users/${editingUserId.value}`, payload)
+      ElMessage.success('更新成功')
+    } else {
+      await request.post('/users/', { ...form })
+      ElMessage.success('创建成功')
+    }
+    showCreateDialog.value = false
+    isEdit.value = false
+    editingUserId.value = null
+    Object.assign(form, { username: '', password: '', email: '', department: '', role: '' })
+    await loadUsers()
+  } catch (error) {
+    ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+  }
 }
+
+onMounted(() => {
+  loadUsers()
+  loadRoles()
+})
 </script>
 
 <style scoped>

@@ -77,46 +77,95 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '@/utils/request'
 
 const route = useRoute()
+const knowledgeId = route.params.id
 
 const knowledge = reactive({
-  name: '公司规章制度',
-  description: '包含员工手册、考勤制度、报销制度等',
-  department: '人事部',
-  owner: '张三',
-  created_at: '2024-01-15',
+  name: '',
+  description: '',
+  department: '',
+  owner: '',
+  created_at: '',
   status: 'active',
 })
 
 const showEditDialog = ref(false)
 const showUploadDialog = ref(false)
 const documents = ref([])
+const fileList = ref([])
+
+const loadKnowledgeBase = async () => {
+  try {
+    const data = await request.get(`/knowledge-bases/${knowledgeId}`)
+    Object.assign(knowledge, data)
+  } catch (error) {
+    ElMessage.error('加载知识库信息失败')
+  }
+}
+
+const loadDocuments = async () => {
+  try {
+    const data = await request.get('/documents/', {
+      params: { knowledge_base_id: knowledgeId }
+    })
+    documents.value = data
+  } catch (error) {
+    ElMessage.error('加载文档列表失败')
+  }
+}
+
+const previewDocument = (row) => {
+  ElMessage.info('预览功能开发中')
+}
+
+const deleteDocument = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该文档？', '提示', { type: 'warning' })
+    await request.delete(`/documents/${row.id}`)
+    ElMessage.success('删除成功')
+    await loadDocuments()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
+
+const handleFileChange = (file) => {
+  fileList.value.push(file)
+}
+
+const uploadFiles = async () => {
+  if (fileList.value.length === 0) {
+    ElMessage.warning('请选择文件')
+    return
+  }
+
+  try {
+    for (const file of fileList.value) {
+      const formData = new FormData()
+      formData.append('file', file.raw)
+      formData.append('knowledge_base_id', knowledgeId)
+      await request.post('/documents/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+    }
+    showUploadDialog.value = false
+    fileList.value = []
+    ElMessage.success('上传成功')
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error('上传失败')
+  }
+}
 
 onMounted(() => {
-  documents.value = [
-    { id: 1, filename: '员工手册.pdf', size: '2.3MB', upload_time: '2024-01-15', chunk_count: 45, status: 'indexed' },
-    { id: 2, filename: '考勤制度.md', size: '15KB', upload_time: '2024-01-16', chunk_count: 3, status: 'indexed' },
-    { id: 3, filename: '报销流程.docx', size: '56KB', upload_time: '2024-01-17', chunk_count: 8, status: 'indexed' },
-  ]
+  loadKnowledgeBase()
+  loadDocuments()
 })
-
-const loadDocuments = () => {}
-
-const previewDocument = (row) => {}
-
-const deleteDocument = (row) => {
-  ElMessageBox.confirm('确定删除该文档？', '提示', { type: 'warning' }).then(() => {
-    ElMessage.success('删除成功')
-  })
-}
-
-const handleFileChange = () => {}
-
-const uploadFiles = () => {
-  showUploadDialog.value = false
-  ElMessage.success('上传成功')
-}
 </script>
 
 <style scoped>

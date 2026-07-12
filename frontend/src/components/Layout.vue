@@ -54,7 +54,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   Bot,
   LayoutDashboard,
@@ -70,6 +70,7 @@ import {
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 const icons = {
@@ -96,7 +97,7 @@ const menuItems = [
 ]
 
 const currentPageTitle = computed(() => {
-  const item = menuItems.find((i) => i.path === $route.path)
+  const item = menuItems.find((i) => i.path === route.path)
   return item?.label || '首页'
 })
 

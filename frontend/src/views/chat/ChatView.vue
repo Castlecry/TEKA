@@ -18,12 +18,17 @@
             <div class="session-name">{{ session.last_message || '新对话' }}</div>
             <div class="session-time">{{ session.last_message_at }}</div>
           </div>
-          <el-button size="small" icon="Delete" class="delete-btn" @click.stop="deleteSession(session.session_id)" />
+          <el-button
+            size="small"
+            icon="Delete"
+            class="delete-btn"
+            @click.stop="deleteSession(session.session_id)"
+          />
         </div>
       </div>
     </aside>
 
-    <main class="chat-main">
+    <main class="chat-main" v-loading="loading" element-loading-text="正在思考中...">
       <div class="chat-header">
         <h2>对话机器人</h2>
         <div class="header-actions">
@@ -52,11 +57,6 @@
             </div>
           </div>
         </div>
-
-        <div v-if="loading" class="loading-indicator">
-          <el-spinner size="medium" />
-          <span>正在思考中...</span>
-        </div>
       </div>
 
       <div class="chat-input">
@@ -66,7 +66,13 @@
           size="large"
           @keyup.enter="sendMessage"
         />
-        <el-button type="primary" size="large" icon="Send" :loading="loading" @click="sendMessage" />
+        <el-button
+          type="primary"
+          size="large"
+          icon="Send"
+          :loading="loading"
+          @click="sendMessage"
+        />
       </div>
     </main>
 
@@ -78,7 +84,12 @@
             <el-input-number v-model="settings.top_k" :min="1" :max="20" />
           </el-form-item>
           <el-form-item label="相似度阈值">
-            <el-slider v-model="settings.similarity_threshold" :min="0" :max="1" :step="0.1" />
+            <el-slider
+              v-model="settings.similarity_threshold"
+              :min="0"
+              :max="1"
+              :step="0.1"
+            />
           </el-form-item>
         </el-form>
       </div>
@@ -86,119 +97,127 @@
   </div>
 </template>
 
-<script setup>import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue';
-import { MessageSquare, User, Bot } from '@element-plus/icons-vue';
-import MarkdownRenderer from '@/components/MarkdownRenderer.vue';
-import request from '@/utils/request';
-const icons = { MessageSquare, User, Bot };
-const currentSessionId = ref('default');
-const messages = ref([]);
-const inputMessage = ref('');
-const loading = ref(false);
-const useWeb = ref(false);
-const messagesContainer = ref(null);
-const sessions = ref([]);
+<script setup>
+import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue'
+import { MessageSquare, User, Bot } from '@element-plus/icons-vue'
+import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
+import request from '@/utils/request'
+
+const icons = { MessageSquare, User, Bot }
+
+const currentSessionId = ref('default')
+const messages = ref([])
+const inputMessage = ref('')
+const loading = ref(false)
+const useWeb = ref(false)
+const messagesContainer = ref(null)
+const sessions = ref([])
+
 const settings = reactive({
- top_k: 5,
- similarity_threshold: 0.5,
-});
+  top_k: 5,
+  similarity_threshold: 0.5,
+})
+
 const createNewSession = () => {
- const newId = Date.now().toString();
- currentSessionId.value = newId;
- messages.value = [];
-};
+  const newId = Date.now().toString()
+  currentSessionId.value = newId
+  messages.value = []
+}
+
 const switchSession = (sessionId) => {
- currentSessionId.value = sessionId;
- loadHistory(sessionId);
-};
+  currentSessionId.value = sessionId
+  loadHistory(sessionId)
+}
+
 const deleteSession = async (sessionId) => {
- await request.delete(`/history/${sessionId}`);
- loadSessions();
- if (currentSessionId.value === sessionId) {
- createNewSession();
- }
-};
+  try {
+    await request.delete(`/chat/history/${sessionId}`)
+    loadSessions()
+    if (currentSessionId.value === sessionId) {
+      createNewSession()
+    }
+  } catch (e) {
+    console.error('删除会话失败', e)
+  }
+}
+
 const loadSessions = async () => {
- try {
- const res = await request.get('/sessions');
- if (res.code === 200) {
- sessions.value = res.data;
- }
- }
- catch (e) {
- console.error('加载会话列表失败', e);
- }
-};
+  try {
+    const res = await request.get('/chat/sessions')
+    // 后端直接返回数组
+    sessions.value = Array.isArray(res) ? res : []
+  } catch (e) {
+    console.error('加载会话列表失败', e)
+  }
+}
+
 const loadHistory = async (sessionId) => {
- try {
- const res = await request.get(`/history/${sessionId}`);
- if (res.code === 200) {
- messages.value = res.data.messages || [];
- scrollToBottom();
- }
- }
- catch (e) {
- console.error('加载对话历史失败', e);
- }
-};
+  try {
+    const res = await request.get(`/chat/history/${sessionId}`)
+    // 后端直接返回消息数组
+    messages.value = Array.isArray(res) ? res : []
+    scrollToBottom()
+  } catch (e) {
+    console.error('加载对话历史失败', e)
+  }
+}
+
 const sendMessage = async () => {
- if (!inputMessage.value.trim() || loading.value)
- return;
- const message = inputMessage.value.trim();
- inputMessage.value = '';
- messages.value.push({
- role: 'user',
- content: message,
- created_at: new Date().toLocaleTimeString(),
- });
- loading.value = true;
- scrollToBottom();
- try {
- const res = await request.post('/chat', {
- query: message,
- session_id: currentSessionId.value,
- use_web: useWeb.value,
- });
- if (res.code === 200) {
- messages.value.push({
- role: 'assistant',
- content: res.data.answer,
- created_at: new Date().toLocaleTimeString(),
- });
- }
- else {
- messages.value.push({
- role: 'assistant',
- content: res.message || '回答失败',
- created_at: new Date().toLocaleTimeString(),
- });
- }
- }
- catch (e) {
- messages.value.push({
- role: 'assistant',
- content: '网络错误，请重试',
- created_at: new Date().toLocaleTimeString(),
- });
- }
- finally {
- loading.value = false;
- scrollToBottom();
- }
-};
+  if (!inputMessage.value.trim() || loading.value) return
+
+  const message = inputMessage.value.trim()
+  inputMessage.value = ''
+
+  messages.value.push({
+    role: 'user',
+    content: message,
+    created_at: new Date().toLocaleTimeString(),
+  })
+
+  loading.value = true
+  scrollToBottom()
+
+  try {
+    // 后端期望的请求体格式: {message, conversation_id}
+    const res = await request.post('/chat/message', {
+      message: message,
+      conversation_id: currentSessionId.value,
+    })
+
+    // 后端直接返回 {answer, sources}
+    messages.value.push({
+      role: 'assistant',
+      content: res.answer || '未获取到回答',
+      created_at: new Date().toLocaleTimeString(),
+    })
+  } catch (e) {
+    messages.value.push({
+      role: 'assistant',
+      content: '网络错误，请重试',
+      created_at: new Date().toLocaleTimeString(),
+    })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
 const scrollToBottom = () => {
- nextTick(() => {
- if (messagesContainer.value) {
- messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
- }
- });
-};
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
+}
+
 onMounted(() => {
- loadSessions();
- loadHistory(currentSessionId.value);
-});
+  loadSessions()
+  loadHistory(currentSessionId.value)
+})
+
 onUnmounted(() => {
-});
+  // 清理 WebSocket 连接等资源
+})
 </script>
 
 <style scoped>
@@ -288,6 +307,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #f5f7fa;
+  position: relative;
 }
 
 .chat-header {
@@ -373,14 +393,6 @@ onUnmounted(() => {
 .message-item.user .message-body {
   background: #3b82f6;
   color: #fff;
-}
-
-.loading-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  color: #6b7280;
 }
 
 .chat-input {
