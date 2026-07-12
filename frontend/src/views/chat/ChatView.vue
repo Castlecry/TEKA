@@ -4,16 +4,16 @@
     <aside class="chat-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
         <div class="sidebar-title" v-show="!sidebarCollapsed">
-          <Component :is="icons.MessageSquare" class="sidebar-logo" />
+          <el-icon :size="18" color="var(--primary)"><ChatLineRound /></el-icon>
           <span>对话历史</span>
         </div>
         <button class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
-          <Component :is="icons.Menu" />
+          <el-icon :size="16"><Menu /></el-icon>
         </button>
       </div>
       <div class="sidebar-actions" v-show="!sidebarCollapsed">
         <button class="new-chat-btn" @click="createNewSession">
-          <Component :is="icons.Plus" />
+          <el-icon :size="16"><Plus /></el-icon>
           <span>新对话</span>
         </button>
       </div>
@@ -25,7 +25,7 @@
           :class="{ active: currentSessionId === session.session_id }"
           @click="switchSession(session.session_id)"
         >
-          <Component :is="icons.MessageSquare" class="session-icon" />
+          <el-icon :size="16" class="session-icon"><ChatLineRound /></el-icon>
           <div class="session-info">
             <div class="session-name">{{ session.last_message || '新对话' }}</div>
             <div class="session-time">{{ session.last_message_at }}</div>
@@ -34,11 +34,11 @@
             class="delete-btn"
             @click.stop="deleteSession(session.session_id)"
           >
-            <Component :is="icons.Trash2" />
+            <el-icon :size="14"><Delete /></el-icon>
           </button>
         </div>
         <div v-if="sessions.length === 0" class="session-empty">
-          <Component :is="icons.MessageSquare" class="empty-icon" />
+          <el-icon :size="24" class="empty-icon"><ChatLineRound /></el-icon>
           <p>暂无对话记录</p>
         </div>
       </div>
@@ -49,20 +49,20 @@
       <div class="chat-header">
         <div class="header-left">
           <button class="mobile-menu-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-            <Component :is="icons.Menu" />
+            <el-icon :size="18"><Menu /></el-icon>
           </button>
           <h2>
-            <Component :is="icons.Bot" class="header-bot-icon" />
+            <el-icon :size="18" color="var(--primary)"><Promotion /></el-icon>
             AI 助手
           </h2>
         </div>
         <div class="header-actions">
           <div class="mode-switch" :class="{ active: useWeb }" @click="useWeb = !useWeb">
-            <Component :is="icons.Globe" />
+            <el-icon :size="14"><Connection /></el-icon>
             <span>{{ useWeb ? '联网搜索' : '本地检索' }}</span>
           </div>
           <button class="settings-toggle" @click="settingsOpen = !settingsOpen">
-            <Component :is="icons.Settings" />
+            <el-icon :size="16"><Setting /></el-icon>
           </button>
         </div>
       </div>
@@ -72,7 +72,7 @@
         <!-- 空状态 -->
         <div v-if="messages.length === 0 && !loading" class="empty-state">
           <div class="empty-avatar">
-            <Component :is="icons.Sparkles" />
+            <el-icon :size="24"><MagicStick /></el-icon>
           </div>
           <h3>你好，有什么可以帮助你的？</h3>
           <p class="empty-subtitle">我是企业知识助手，可以帮你检索知识库、解答问题</p>
@@ -84,7 +84,7 @@
               @click="inputMessage = q; sendMessage()"
             >
               <div class="example-icon">
-                <Component :is="icons.Lightbulb" />
+                <el-icon :size="14"><Sunny /></el-icon>
               </div>
               <span>{{ q }}</span>
             </div>
@@ -104,7 +104,10 @@
           :style="{ '--delay': index * 0.05 }"
         >
           <div class="message-avatar" :class="message.role">
-            <Component :is="message.role === 'user' ? icons.User : icons.Bot" />
+            <el-icon :size="16">
+              <User v-if="message.role === 'user'" />
+              <Promotion v-else />
+            </el-icon>
           </div>
           <div class="message-content">
             <div class="message-header">
@@ -121,7 +124,7 @@
         <!-- 打字指示器 -->
         <div v-if="loading" class="message-item assistant typing-indicator-wrapper">
           <div class="message-avatar assistant">
-            <Component :is="icons.Bot" />
+            <el-icon :size="16"><Promotion /></el-icon>
           </div>
           <div class="message-content">
             <div class="message-header">
@@ -153,7 +156,7 @@
             :disabled="!inputMessage.trim() || loading"
             @click="sendMessage"
           >
-            <Component :is="icons.Send" />
+            <el-icon :size="18"><Promotion /></el-icon>
           </button>
         </div>
         <div class="input-hint">按 Enter 发送消息</div>
@@ -165,11 +168,11 @@
       <aside v-if="settingsOpen" class="chat-settings-drawer">
         <div class="drawer-header">
           <h4>
-            <Component :is="icons.Settings" />
+            <el-icon :size="16" color="var(--primary)"><Setting /></el-icon>
             检索设置
           </h4>
           <button class="drawer-close" @click="settingsOpen = false">
-            <Component :is="icons.X" />
+            <el-icon :size="16"><Close /></el-icon>
           </button>
         </div>
         <div class="drawer-body">
@@ -212,13 +215,11 @@
 <script setup>
 import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue'
 import {
-  ChatLineRound, User, Promotion, Plus, Delete, Promotion as Send, Setting,
+  ChatLineRound, User, Promotion, Plus, Delete, Setting,
   Menu, Close, Connection, MagicStick, Sunny
 } from '@element-plus/icons-vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import request from '@/utils/request'
-
-const icons = { MessageSquare: ChatLineRound, User, Bot: Promotion, Plus, Trash2: Delete, Send: Promotion, Settings: Setting, Menu, X: Close, Globe: Connection, Sparkles: MagicStick, Lightbulb: Sunny }
 
 const currentSessionId = ref('default')
 const messages = ref([])
@@ -267,7 +268,6 @@ const deleteSession = async (sessionId) => {
 const loadSessions = async () => {
   try {
     const res = await request.get('/chat/sessions')
-    // 后端直接返回数组 [{conversation_id, last_message, last_time, user_id}]
     sessions.value = (Array.isArray(res) ? res : []).map(s => ({
       ...s,
       session_id: s.conversation_id,
@@ -281,7 +281,6 @@ const loadSessions = async () => {
 const loadHistory = async (sessionId) => {
   try {
     const res = await request.get(`/chat/history/${sessionId}`)
-    // 后端返回 {conversation_id, history: [...]}
     messages.value = Array.isArray(res?.history) ? res.history : []
     scrollToBottom()
   } catch (e) {
@@ -305,13 +304,11 @@ const sendMessage = async () => {
   scrollToBottom()
 
   try {
-    // 后端期望的请求体格式: {message, conversation_id}
     const res = await request.post('/chat/message', {
       message: message,
       conversation_id: currentSessionId.value,
     })
 
-    // 后端直接返回 {answer, sources}
     messages.value.push({
       role: 'assistant',
       content: res.answer || '未获取到回答',
@@ -350,7 +347,7 @@ onUnmounted(() => {
 <style scoped>
 .chat-container {
   display: flex;
-  height: calc(100vh - 60px);
+  height: 100%;
   background: var(--gray-50);
   position: relative;
   overflow: hidden;
@@ -388,11 +385,6 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 600;
   color: var(--gray-800);
-}
-
-.sidebar-logo {
-  font-size: 20px;
-  color: var(--primary);
 }
 
 .sidebar-toggle {
@@ -487,7 +479,6 @@ onUnmounted(() => {
 }
 
 .session-icon {
-  font-size: 18px;
   color: var(--gray-400);
   flex-shrink: 0;
 }
@@ -551,7 +542,6 @@ onUnmounted(() => {
 }
 
 .empty-icon {
-  font-size: 32px;
   margin-bottom: 8px;
   opacity: 0.5;
 }
@@ -567,6 +557,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
   background: var(--gray-50);
 }
 
@@ -579,6 +570,7 @@ onUnmounted(() => {
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--gray-100);
   z-index: 5;
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -608,11 +600,6 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: var(--gray-800);
-}
-
-.header-bot-icon {
-  font-size: 22px;
-  color: var(--primary);
 }
 
 .header-actions {
@@ -692,14 +679,13 @@ onUnmounted(() => {
 }
 
 .empty-avatar {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--primary), var(--primary-light));
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
   color: #fff;
   margin-bottom: 20px;
   box-shadow: 0 8px 24px rgba(79, 110, 247, 0.3);
@@ -755,7 +741,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
   color: var(--primary);
   flex-shrink: 0;
 }
@@ -801,7 +786,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 18px;
   color: #fff;
 }
 
@@ -906,6 +890,7 @@ onUnmounted(() => {
 .chat-input-wrapper {
   padding: 16px 24px 20px;
   background: transparent;
+  flex-shrink: 0;
 }
 
 .chat-input {

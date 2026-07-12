@@ -25,7 +25,7 @@
           >
             <router-link :to="item.path">
               <div class="nav-indicator"></div>
-              <Component :is="item.icon" class="nav-icon" />
+              <el-icon class="nav-icon" :size="18"><Component :is="item.icon" /></el-icon>
               <span class="nav-text">{{ item.label }}</span>
             </router-link>
           </div>
@@ -41,7 +41,7 @@
           >
             <router-link :to="item.path">
               <div class="nav-indicator"></div>
-              <Component :is="item.icon" class="nav-icon" />
+              <el-icon class="nav-icon" :size="18"><Component :is="item.icon" /></el-icon>
               <span class="nav-text">{{ item.label }}</span>
             </router-link>
           </div>
@@ -64,17 +64,17 @@
         </div>
         <div class="top-bar-right">
           <div class="notification-bell">
-            <Component :is="icons.Bell" class="bell-icon" />
+            <el-icon class="bell-icon" :size="18"><Bell /></el-icon>
             <span class="notification-badge"></span>
           </div>
           <div class="user-info">
             <div class="user-avatar">
-              <Component :is="icons.User" class="avatar-icon" />
+              <el-icon :size="16"><User /></el-icon>
             </div>
             <span class="user-name">{{ userStore.user?.username }}</span>
             <el-dropdown @command="handleCommand">
               <span class="dropdown-trigger">
-                <Component :is="icons.ArrowDown" class="arrow-icon" />
+                <el-icon :size="14"><ArrowDown /></el-icon>
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -318,7 +318,7 @@ const handleCommand = (command) => {
 }
 
 .nav-icon {
-  font-size: 19px;
+  font-size: 16px;
   transition: var(--transition);
 }
 

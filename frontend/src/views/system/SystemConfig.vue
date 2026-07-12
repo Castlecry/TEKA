@@ -4,7 +4,7 @@
     <div class="page-header">
       <div class="header-left">
         <div class="header-icon">
-          <el-icon :size="24"><Setting /></el-icon>
+          <el-icon :size="20"><Setting /></el-icon>
         </div>
         <div>
           <h2>系统配置</h2>

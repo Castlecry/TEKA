@@ -25,7 +25,7 @@
       >
         <div class="stat-card-inner">
           <div class="stat-icon" :class="item.color">
-            <Component :is="item.icon" />
+            <el-icon :size="20"><Component :is="item.icon" /></el-icon>
           </div>
           <div class="stat-info">
             <div class="stat-value">
@@ -43,7 +43,7 @@
       <div class="section-card fade-in-up" style="--delay: 0.5">
         <div class="section-header">
           <h3>
-            <Component :is="icons.Lightning" class="section-icon" />
+            <el-icon :size="18" class="section-icon"><Component :is="icons.Lightning" /></el-icon>
             快捷操作
           </h3>
         </div>
@@ -55,14 +55,14 @@
             @click="action.handler"
           >
             <div class="action-icon" :style="{ background: action.gradient }">
-              <Component :is="action.icon" />
+              <el-icon :size="20"><Component :is="action.icon" /></el-icon>
             </div>
             <div class="action-text">
               <div class="action-title">{{ action.title }}</div>
               <div class="action-desc">{{ action.desc }}</div>
             </div>
             <div class="action-arrow">
-              <Component :is="icons.ArrowRight" />
+              <el-icon :size="14"><Component :is="icons.ArrowRight" /></el-icon>
             </div>
           </div>
         </div>
@@ -71,7 +71,7 @@
       <div class="section-card fade-in-up" style="--delay: 0.6">
         <div class="section-header">
           <h3>
-            <Component :is="icons.Promotion" class="section-icon" />
+            <el-icon :size="16" class="section-icon"><Component :is="icons.Promotion" /></el-icon>
             快速开始
           </h3>
         </div>
@@ -88,7 +88,7 @@
               <div class="qs-desc">{{ item.desc }}</div>
             </div>
             <div class="qs-arrow">
-              <Component :is="icons.Right" />
+              <el-icon :size="14"><Component :is="icons.Right" /></el-icon>
             </div>
           </div>
         </div>
@@ -374,13 +374,13 @@ onMounted(() => {
 .stat-card-bg.orange { background: var(--warning); }
 
 .stat-icon {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 20px;
   color: #fff;
   flex-shrink: 0;
 }
@@ -447,7 +447,7 @@ onMounted(() => {
 }
 
 .section-icon {
-  font-size: 20px;
+  font-size: 16px;
   color: var(--primary);
 }
 
@@ -476,13 +476,13 @@ onMounted(() => {
 }
 
 .action-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 18px;
   color: #fff;
   flex-shrink: 0;
 }

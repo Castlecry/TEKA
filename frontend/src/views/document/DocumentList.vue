@@ -4,7 +4,7 @@
     <div class="page-header fade-in">
       <div class="header-left">
         <div class="header-icon">
-          <el-icon :size="28"><Document /></el-icon>
+          <el-icon :size="20"><Document /></el-icon>
         </div>
         <div class="header-text">
           <h2>文档管理</h2>
@@ -104,7 +104,7 @@
       <!-- 空状态 -->
       <div v-else class="empty-state">
         <div class="empty-icon">
-          <el-icon :size="64"><Document /></el-icon>
+          <el-icon :size="48"><Document /></el-icon>
         </div>
         <h3>暂无文档</h3>
         <p>您还没有上传任何文档，点击下方按钮开始上传</p>
@@ -120,7 +120,7 @@
       <template #header>
         <div class="dialog-header">
           <div class="dialog-icon">
-            <el-icon :size="22"><Upload /></el-icon>
+            <el-icon :size="18"><Upload /></el-icon>
           </div>
           <div>
             <h3>上传文档</h3>
@@ -333,8 +333,8 @@ onMounted(() => {
 }
 
 .header-icon {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--radius-md, 10px);
   background: linear-gradient(135deg, var(--primary, #4f6ef7), var(--primary-light, #6b8cff));
   display: flex;
