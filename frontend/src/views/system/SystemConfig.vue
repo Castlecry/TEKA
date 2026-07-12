@@ -24,6 +24,43 @@
 
     <!-- 配置卡片区域 -->
     <el-row :gutter="24" class="config-grid">
+      <!-- 主题配置 -->
+      <el-col :span="24">
+        <div class="config-card theme-card">
+          <div class="card-header">
+            <div class="card-icon theme">
+              <el-icon :size="20"><Brush /></el-icon>
+            </div>
+            <div class="card-title">
+              <h3>主题外观</h3>
+              <p>自定义界面主题色，打造个性化工作空间</p>
+            </div>
+          </div>
+          <div class="theme-selector">
+            <div
+              v-for="(theme, key) in themeStore.presetThemes"
+              :key="key"
+              class="theme-option"
+              :class="{ active: themeStore.currentTheme === key }"
+              @click="themeStore.setTheme(key)"
+            >
+              <div class="theme-preview">
+                <div class="theme-color" :style="{ background: theme.primary }"></div>
+                <div class="theme-color light" :style="{ background: theme.primaryLight }"></div>
+                <div class="theme-color bg" :style="{ background: theme.primaryBg }"></div>
+              </div>
+              <div class="theme-info">
+                <span class="theme-name">{{ theme.name }}</span>
+                <span class="theme-hex">{{ theme.primary }}</span>
+              </div>
+              <div class="theme-check" v-if="themeStore.currentTheme === key">
+                <el-icon><Check /></el-icon>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-col>
+
       <!-- 文档解析配置 -->
       <el-col :span="12">
         <div class="config-card slide-in-left">
@@ -165,6 +202,9 @@
 import { reactive, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { useThemeStore } from '@/stores/theme'
+
+const themeStore = useThemeStore()
 
 const config = reactive({
   document: {
@@ -470,6 +510,123 @@ onMounted(() => {
 @media (max-width: 1200px) {
   .config-grid :deep(.el-col-12) {
     width: 100%;
+  }
+}
+
+/* 主题卡片 */
+.theme-card {
+  animation: slideDown 0.4s ease-out;
+}
+
+.card-icon.theme {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+}
+
+.theme-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.theme-option {
+  position: relative;
+  padding: 16px;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition);
+  background: #fff;
+}
+
+.theme-option:hover {
+  border-color: var(--primary-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.theme-option.active {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+}
+
+.theme-preview {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.theme-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.theme-color.light {
+  width: 20px;
+  height: 20px;
+  align-self: center;
+}
+
+.theme-color.bg {
+  width: 20px;
+  height: 20px;
+  align-self: center;
+  border: 1px solid var(--gray-200);
+}
+
+.theme-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.theme-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.theme-hex {
+  font-size: 12px;
+  color: var(--gray-500);
+  font-family: var(--font-mono);
+}
+
+.theme-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  animation: scaleIn 0.3s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 768px) {
+  .theme-selector {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  
+  .theme-option {
+    padding: 12px;
   }
 }
 </style>
