@@ -120,7 +120,7 @@ async def send_message_stream(
     message: schemas.ChatMessage,
     current_user: models.User = Depends(get_current_user),
 ):
-    """流式聊天（HTTP SSE），使用 asyncio.Queue 实现真正的实时流式输出"""
+    """流式聊天（HTTP SSE）"""
     allowed, remaining = _redis_cache.check_rate_limit(current_user.id)
     if not allowed:
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
@@ -129,71 +129,62 @@ async def send_message_stream(
     conversation_id = message.conversation_id or str(uuid.uuid4())
     provider = message.provider or "api"
 
-    # 捕获变量供生成器使用
     _user_id = current_user.id
     _kb_ids = message.knowledge_base_ids or []
+    _full_answer = []
 
-    import queue as _std_queue
-
-    # 使用线程安全队列桥接同步回调和异步流
-    sync_queue: _std_queue.Queue = _std_queue.Queue()
-
-    async def generate():
-        from app.database import SessionLocal
-
-        full_answer_parts = []
-
-        def sync_on_token(token: str):
-            """同步回调（在线程池中执行）：将 token 放入线程安全队列"""
-            full_answer_parts.append(token)
-            sync_queue.put(token)
+    async def run_rag():
+        """在后台线程中执行 RAG 查询"""
+        def on_token(token: str):
+            _full_answer.append(token)
+            _queue.put_nowait(token)
 
         try:
-            # 执行 RAG/Agent/LangGraph
             if message.mode == "agent" and provider != "local":
                 answer = agent_with_tools(query=message.message, session_id=conversation_id)
                 _conv_store.save_message(conversation_id, "user", message.message)
                 _conv_store.save_message(conversation_id, "assistant", answer)
-                full_answer_parts.append(answer)
-                sync_queue.put(answer)
+                _full_answer.append(answer)
+                _queue.put_nowait(answer)
             elif message.mode == "langgraph" and provider != "local":
                 answer = run_agent(query=message.message, session_id=conversation_id)
                 _conv_store.save_message(conversation_id, "user", message.message)
                 _conv_store.save_message(conversation_id, "assistant", answer)
-                full_answer_parts.append(answer)
-                sync_queue.put(answer)
+                _full_answer.append(answer)
+                _queue.put_nowait(answer)
             else:
-                # 在线程池中执行阻塞的 rag_query
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(
-                    None,
-                    lambda: _rag_chain.rag_query(
-                        query=message.message,
-                        session_id=conversation_id,
-                        use_web=message.use_web or False,
-                        use_rerank=True,
-                        use_rewrite=True,
-                        stream_callback=sync_on_token,
-                        provider=provider,
-                    )
+                await asyncio.to_thread(
+                    _rag_chain.rag_query,
+                    query=message.message,
+                    session_id=conversation_id,
+                    use_web=message.use_web or False,
+                    use_rerank=True,
+                    use_rewrite=True,
+                    stream_callback=on_token,
+                    provider=provider,
                 )
         except Exception as e:
-            error_msg = f"生成回答时出错: {str(e)}"
-            sync_queue.put(f"__ERROR__:{error_msg}")
+            _queue.put_nowait(f"__ERROR__:{str(e)}")
             print(f"[Stream] RAG 查询异常: {e}")
+        finally:
+            _queue.put_nowait("__DONE__")
 
-        # 标记结束
-        sync_queue.put("__DONE__")
+    async def save_log():
+        """保存对话日志"""
+        from app.database import SessionLocal
 
-        # 保存到 PostgreSQL（使用独立的数据库会话）
-        full_answer = "".join(full_answer_parts) if full_answer_parts else ""
+        await asyncio.sleep(1)
+        while _queue.empty() or (_queue.qsize() == 1 and "__DONE__" not in _queue._queue):
+            await asyncio.sleep(0.1)
+
+        full_text = "".join(_full_answer)
         db = SessionLocal()
         try:
             db_log = models.ConversationLog(
                 conversation_id=conversation_id,
                 user_id=_user_id,
                 query=message.message,
-                answer=full_answer,
+                answer=full_text,
                 sources=[],
                 knowledge_base_ids=_kb_ids,
             )
@@ -205,35 +196,21 @@ async def send_message_stream(
         finally:
             db.close()
 
+    _queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+    asyncio.create_task(run_rag())
+    asyncio.create_task(save_log())
+
     async def stream_generator():
-        """从线程安全队列读取数据，通过 asyncio.Queue 中转 yield"""
-        async_queue: asyncio.Queue = asyncio.Queue()
-
-        def reader_thread():
-            """后台线程：从 sync_queue 读取并放入 async_queue"""
-            while True:
-                token = sync_queue.get()
-                if token == "__DONE__":
-                    async_queue.put_nowait(None)
-                    break
-                if token.startswith("__ERROR__:"):
-                    async_queue.put_nowait(f"data: {json.dumps({'type': 'chunk', 'content': token[10:]})}\n\n")
-                else:
-                    async_queue.put_nowait(f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n")
-
-        import threading
-        t = threading.Thread(target=reader_thread, daemon=True)
-        t.start()
-
         while True:
-            chunk = await async_queue.get()
-            if chunk is None:
+            token = await _queue.get()
+            if token == "__DONE__":
                 yield "data: [DONE]\n\n"
                 break
-            yield chunk
-
-    # 启动后台任务，将 generate() 作为并发协程运行
-    generate_task = asyncio.create_task(generate())
+            if token.startswith("__ERROR__:"):
+                yield f"data: {json.dumps({'type': 'error', 'content': token[10:]})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n"
 
     return StreamingResponse(
         stream_generator(),
