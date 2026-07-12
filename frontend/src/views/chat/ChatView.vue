@@ -57,9 +57,14 @@
           </h2>
         </div>
         <div class="header-actions">
-          <div class="mode-switch" :class="{ active: useWeb }" @click="useWeb = !useWeb">
-            <el-icon :size="14"><Connection /></el-icon>
-            <span>{{ useWeb ? '联网搜索' : '本地检索' }}</span>
+          <div class="mode-switch" @click="useWeb = !useWeb">
+            <div class="mode-indicator" :class="{ active: useWeb }"></div>
+            <el-icon :size="14" :color="useWeb ? 'var(--primary)' : 'var(--gray-400)'">
+              <Connection />
+            </el-icon>
+            <span class="mode-text" :class="{ active: useWeb }">
+              {{ useWeb ? '联网搜索' : '本地检索' }}
+            </span>
           </div>
           <button class="settings-toggle" @click="settingsOpen = !settingsOpen">
             <el-icon :size="16"><Setting /></el-icon>
@@ -307,6 +312,7 @@ const sendMessage = async () => {
     const res = await request.post('/chat/message', {
       message: message,
       conversation_id: currentSessionId.value,
+      use_web: useWeb.value,
     })
 
     messages.value.push({
@@ -611,11 +617,9 @@ onUnmounted(() => {
 .mode-switch {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 14px;
   border-radius: 20px;
-  font-size: 13px;
-  color: var(--gray-500);
   background: var(--gray-100);
   cursor: pointer;
   transition: var(--transition);
@@ -626,9 +630,28 @@ onUnmounted(() => {
   background: var(--gray-200);
 }
 
-.mode-switch.active {
-  background: var(--primary-bg);
+.mode-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gray-400);
+  transition: var(--transition);
+}
+
+.mode-indicator.active {
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary);
+}
+
+.mode-text {
+  font-size: 13px;
+  color: var(--gray-500);
+  transition: var(--transition);
+}
+
+.mode-text.active {
   color: var(--primary);
+  font-weight: 500;
 }
 
 .settings-toggle {

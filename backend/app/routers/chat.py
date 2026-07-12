@@ -72,7 +72,7 @@ async def send_message(
     response = _rag_chain.rag_query(
         query=message.message,
         session_id=conversation_id,
-        use_web=False,
+        use_web=message.use_web or False,
         use_rerank=True,
         use_rewrite=True,
     )

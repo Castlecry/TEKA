@@ -121,6 +121,7 @@ class ChatMessage(BaseModel):
     message: str
     conversation_id: Optional[str] = None
     knowledge_base_ids: Optional[List[int]] = None
+    use_web: Optional[bool] = False
 
 
 class ChatResponse(BaseModel):
