@@ -2,6 +2,7 @@
 
 import json
 import requests
+from datetime import datetime
 from typing import Dict, Any, List
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
 from opensearch_store import search as vector_search
@@ -69,6 +70,18 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_current_date",
+            "description": "获取当前系统日期和时间。当用户询问'今天是哪天'、'现在几点'、'当前日期'，或需要根据当前时间生成查询（如'今天的新闻'）时，必须先调用此工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_system_info",
             "description": "获取系统运行状态信息。当用户询问系统状态、性能指标时使用。",
             "parameters": {
@@ -130,6 +143,20 @@ def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
             result = eval(expression)
             return {"success": True, "data": {"result": result}}
         
+        elif tool_name == "get_current_date":
+            now = datetime.now()
+            return {
+                "success": True,
+                "data": {
+                    "date": now.strftime("%Y-%m-%d"),
+                    "time": now.strftime("%H:%M:%S"),
+                    "weekday": ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][now.weekday()],
+                    "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": int(now.timestamp()),
+                    "iso_format": now.isoformat()
+                }
+            }
+
         elif tool_name == "get_system_info":
             # 模拟系统信息
             return {
@@ -180,11 +207,19 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
         {
             "role": "system",
             "content": (
-                "你是一个科技企业智能助手，可以使用工具来帮助用户解决问题。"
-                "可用的工具有：搜索知识库、联网搜索、数学计算、查看系统信息。"
-                "对于需要外部信息的问题，优先调用 search_knowledge_base 搜索本地知识库；"
-                "如果本地知识库没有找到相关信息，再考虑使用 web_search 联网搜索。"
-                "对于数学计算类问题，使用 calculate 工具。"
+                "你是一个科技企业智能助手，可以使用工具来帮助用户解决问题。\n"
+                "可用工具：\n"
+                "1. search_knowledge_base - 搜索本地知识库\n"
+                "2. web_search - 联网搜索\n"
+                "3. calculate - 数学计算\n"
+                "4. get_current_date - 获取当前日期时间（涉及时间相关问题必须先调用）\n"
+                "5. get_system_info - 查看系统信息\n\n"
+                "重要规则：\n"
+                "- 涉及'今天'、'现在'、'最新'、'当前'、'近期'等时间相关问题时，必须先调用 get_current_date 获取准确日期\n"
+                "- 再用真实日期生成查询词（如 '2026年7月12日 新闻'），避免编造日期\n"
+                "- 对于需要外部信息的问题，优先调用 search_knowledge_base 搜索本地知识库\n"
+                "- 如果本地知识库没有找到相关信息，再考虑使用 web_search 联网搜索\n"
+                "- 对于数学计算类问题，使用 calculate 工具\n"
                 "请用中文回答，回答要准确、简洁、专业。"
             )
         }

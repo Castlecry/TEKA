@@ -50,9 +50,13 @@ def analyze_query(state: AgentState) -> AgentState:
 1. search_knowledge_base - 搜索本地知识库
 2. web_search - 搜索互联网
 3. calculate - 数学计算
-4. get_system_info - 获取系统信息
+4. get_current_date - 获取当前系统日期时间
+5. get_system_info - 获取系统信息
 
-如果问题需要实时信息、外部知识、计算或系统状态，请返回JSON：
+重要规则：
+- 涉及"今天"、"现在"、"最新"、"当前"、"近期"等时间相关问题时，必须先调用 get_current_date 获取真实日期
+- 再用真实日期生成查询词（如 "2026年7月12日 新闻"），避免编造日期
+- 如果问题需要实时信息、外部知识、计算或系统状态，请返回JSON：
 {"need_tool": true, "tool": "工具名", "args": {参数}}
 
 如果可以直接回答，返回：
