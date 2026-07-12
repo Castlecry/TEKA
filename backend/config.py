@@ -67,3 +67,27 @@ SUPPORTED_EXTENSIONS = {
     ".xls", ".xlsx", ".md", ".txt", ".html", ".htm",
     ".epub", ".mobi", ".jpg", ".jpeg", ".png",
 }
+
+# ========== LoRA 微调配置 ==========
+FINETUNE_BASE_MODEL = os.getenv("FINETUNE_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+FINETUNE_OUTPUT_DIR = os.path.join(BASE_DIR, "finetune", "output")
+FINETUNE_DATA_DIR = os.path.join(BASE_DIR, "finetune", "data")
+
+# LoRA 参数
+FINETUNE_LORA_R = int(os.getenv("FINETUNE_LORA_R", "16"))
+FINETUNE_LORA_ALPHA = int(os.getenv("FINETUNE_LORA_ALPHA", "32"))
+FINETUNE_LORA_DROPOUT = float(os.getenv("FINETUNE_LORA_DROPOUT", "0.05"))
+
+# 训练参数
+FINETUNE_NUM_EPOCHS = int(os.getenv("FINETUNE_NUM_EPOCHS", "3"))
+FINETUNE_BATCH_SIZE = int(os.getenv("FINETUNE_BATCH_SIZE", "4"))
+FINETUNE_LEARNING_RATE = float(os.getenv("FINETUNE_LEARNING_RATE", "2e-4"))
+FINETUNE_GRADIENT_ACCUMULATION_STEPS = int(os.getenv("FINETUNE_GRADIENT_ACCUMULATION_STEPS", "4"))
+FINETUNE_MAX_SEQ_LENGTH = int(os.getenv("FINETUNE_MAX_SEQ_LENGTH", "2048"))
+FINETUNE_WARMUP_RATIO = float(os.getenv("FINETUNE_WARMUP_RATIO", "0.1"))
+FINETUNE_WEIGHT_DECAY = float(os.getenv("FINETUNE_WEIGHT_DECAY", "0.01"))
+
+# 数据准备
+FINETUNE_MIN_QUERY_LENGTH = int(os.getenv("FINETUNE_MIN_QUERY_LENGTH", "5"))
+FINETUNE_MIN_ANSWER_LENGTH = int(os.getenv("FINETUNE_MIN_ANSWER_LENGTH", "10"))
+FINETUNE_TEST_SPLIT_RATIO = float(os.getenv("FINETUNE_TEST_SPLIT_RATIO", "0.1"))

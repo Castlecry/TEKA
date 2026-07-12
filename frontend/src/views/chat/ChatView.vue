@@ -57,6 +57,20 @@
           </h2>
         </div>
         <div class="header-actions">
+          <div class="chat-mode-selector">
+            <button
+              v-for="mode in chatModes"
+              :key="mode.value"
+              class="mode-btn"
+              :class="{ active: chatMode === mode.value }"
+              @click="chatMode = mode.value"
+            >
+              <el-icon :size="14">
+                <component :is="mode.icon" />
+              </el-icon>
+              <span>{{ mode.label }}</span>
+            </button>
+          </div>
           <div class="mode-switch" @click="useWeb = !useWeb">
             <div class="mode-indicator" :class="{ active: useWeb }"></div>
             <el-icon :size="14" :color="useWeb ? 'var(--primary)' : 'var(--gray-400)'">
@@ -120,7 +134,7 @@
               <span class="message-time">{{ message.created_at }}</span>
             </div>
             <div class="message-body">
-              <MarkdownRenderer v-if="message.role === 'assistant'" :content="message.content" />
+              <RichContent v-if="message.role === 'assistant'" :content="message.content" type="markdown" />
               <span v-else>{{ message.content }}</span>
             </div>
           </div>
@@ -218,12 +232,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
-  Menu, Close, Connection, MagicStick, Sunny
+  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor
 } from '@element-plus/icons-vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
+import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
 
 const currentSessionId = ref('default')
@@ -231,10 +246,24 @@ const messages = ref([])
 const inputMessage = ref('')
 const loading = ref(false)
 const useWeb = ref(false)
+const chatMode = ref('rag')
 const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
+
+// WebSocket 相关
+const ws = ref(null)
+const streamingMessage = ref('')
+const reconnectAttempts = ref(0)
+const maxReconnectAttempts = 5
+
+// 模式配置
+const chatModes = [
+  { value: 'rag', label: 'RAG', icon: 'Sunny' },
+  { value: 'agent', label: 'Agent', icon: 'Cpu' },
+  { value: 'langgraph', label: 'LangGraph', icon: 'Monitor' }
+]
 
 const settings = reactive({
   top_k: 5,
@@ -293,7 +322,60 @@ const loadHistory = async (sessionId) => {
   }
 }
 
-const sendMessage = async () => {
+const connectWebSocket = () => {
+  if (ws.value) {
+    ws.value.close()
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/api/chat/ws/${currentSessionId.value}`
+
+  ws.value = new WebSocket(wsUrl)
+
+  ws.value.onopen = () => {
+    console.log('WebSocket 连接成功')
+    reconnectAttempts.value = 0
+  }
+
+  ws.value.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+
+      if (data.type === 'chunk') {
+        streamingMessage.value += data.content
+        scrollToBottom()
+      } else if (data.type === 'end') {
+        messages.value.push({
+          role: 'assistant',
+          content: data.content || streamingMessage.value,
+          created_at: new Date().toLocaleTimeString(),
+        })
+        streamingMessage.value = ''
+        loading.value = false
+        scrollToBottom()
+      }
+    } catch (e) {
+      console.error('解析 WebSocket 消息失败', e)
+    }
+  }
+
+  ws.value.onerror = (error) => {
+    console.error('WebSocket 错误:', error)
+  }
+
+  ws.value.onclose = () => {
+    console.log('WebSocket 连接关闭')
+    if (reconnectAttempts.value < maxReconnectAttempts) {
+      setTimeout(() => {
+        reconnectAttempts.value++
+        console.log(`尝试重连 (${reconnectAttempts.value}/${maxReconnectAttempts})`)
+        connectWebSocket()
+      }, 2000)
+    }
+  }
+}
+
+const sendMessage = () => {
   if (!inputMessage.value.trim() || loading.value) return
 
   const message = inputMessage.value.trim()
@@ -306,29 +388,22 @@ const sendMessage = async () => {
   })
 
   loading.value = true
+  streamingMessage.value = ''
   scrollToBottom()
 
-  try {
-    const res = await request.post('/chat/message', {
+  if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+    ws.value.send(JSON.stringify({
       message: message,
-      conversation_id: currentSessionId.value,
       use_web: useWeb.value,
-    })
-
+      mode: chatMode.value,
+    }))
+  } else {
     messages.value.push({
       role: 'assistant',
-      content: res.answer || '未获取到回答',
+      content: '连接未就绪，请重试',
       created_at: new Date().toLocaleTimeString(),
     })
-  } catch (e) {
-    messages.value.push({
-      role: 'assistant',
-      content: '网络错误，请重试',
-      created_at: new Date().toLocaleTimeString(),
-    })
-  } finally {
     loading.value = false
-    scrollToBottom()
   }
 }
 
@@ -340,13 +415,23 @@ const scrollToBottom = () => {
   })
 }
 
+// 监听会话切换，重新建立 WebSocket 连接
+watch(currentSessionId, (newId) => {
+  connectWebSocket()
+  loadHistory(newId)
+})
+
 onMounted(() => {
   loadSessions()
   loadHistory(currentSessionId.value)
+  connectWebSocket()
 })
 
 onUnmounted(() => {
-  // 清理 WebSocket 连接等资源
+  if (ws.value) {
+    ws.value.close()
+    ws.value = null
+  }
 })
 </script>
 
@@ -612,6 +697,45 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.chat-mode-selector {
+  display: flex;
+  align-items: center;
+  background: var(--gray-100);
+  border-radius: 20px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 18px;
+  font-size: 13px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  color: var(--gray-700);
+}
+
+.mode-btn.active {
+  background: #fff;
+  color: var(--primary);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.mode-btn .el-icon {
+  flex-shrink: 0;
 }
 
 .mode-switch {

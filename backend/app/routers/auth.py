@@ -103,6 +103,10 @@ async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # 新注册用户默认为普通用户
+    default_role = db.query(models.Role).filter(models.Role.name == "普通用户").first()
+    role_id = default_role.id if default_role else 2
+
     hashed_password = get_password_hash(user.password)
     db_user = models.User(
         username=user.username,
@@ -110,9 +114,40 @@ async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         password_hash=hashed_password,
         full_name=user.full_name,
         department=user.department,
-        role_id=user.role_id or 3,
+        role_id=role_id,
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return {"message": "User created successfully", "user_id": db_user.id}
+
+
+@router.delete("/deactivate")
+async def deactivate_account(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """注销当前用户账户"""
+    # 删除用户相关数据
+    # 1. 删除用户的个人知识库
+    personal_kbs = db.query(models.KnowledgeBase).filter(
+        models.KnowledgeBase.owner_id == current_user.id,
+        models.KnowledgeBase.is_personal == True
+    ).all()
+    for kb in personal_kbs:
+        # 删除知识库下的文档
+        docs = db.query(models.Document).filter(models.Document.knowledge_base_id == kb.id).all()
+        for doc in docs:
+            db.delete(doc)
+        db.delete(kb)
+
+    # 2. 删除用户的对话日志
+    db.query(models.ConversationLog).filter(
+        models.ConversationLog.user_id == current_user.id
+    ).delete()
+
+    # 3. 删除用户记录
+    db.delete(current_user)
+    db.commit()
+
+    return {"message": "账户已注销"}

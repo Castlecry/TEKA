@@ -123,6 +123,7 @@ class ChatMessage(BaseModel):
     conversation_id: Optional[str] = None
     knowledge_base_ids: Optional[List[int]] = None
     use_web: Optional[bool] = False
+    mode: Optional[str] = "rag"  # rag, agent, langgraph
 
 
 class ChatResponse(BaseModel):

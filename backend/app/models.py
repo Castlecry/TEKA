@@ -54,6 +54,7 @@ class KnowledgeBase(Base):
     department = Column(String(50))
     owner_id = Column(Integer, ForeignKey("users.id"))
     embedding_model = Column(String(100), default="qwen3-embedding:4b")
+    is_personal = Column(Boolean, default=False)  # 是否为个人知识库
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

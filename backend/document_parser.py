@@ -5,6 +5,9 @@ import json
 import requests
 from config import MINERU_HOST, SUPPORTED_EXTENSIONS
 
+# 图片格式
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+
 # MIME 类型映射
 MIME_MAP = {
     ".pdf": "application/pdf",
@@ -23,6 +26,9 @@ MIME_MAP = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
+    ".bmp": "image/bmp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
 }
 
 
@@ -80,7 +86,8 @@ def parse_document(file_path: str) -> str:
     """
     解析文档。
     - md/txt 直接读取
-    - 其他格式（PDF/Word/PPT/Excel/图片等）通过 MinerU API 统一转 MD
+    - 图片文件使用 OCR 识别
+    - 其他格式（PDF/Word/PPT/Excel等）通过 MinerU API 统一转 MD
     - MinerU 不可用时，PDF 用 PyPDF2 兜底
     """
     if not os.path.exists(file_path):
@@ -95,6 +102,18 @@ def parse_document(file_path: str) -> str:
     if ext in (".md", ".txt"):
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
+
+    # 图片文件使用 OCR
+    if ext in IMAGE_EXTENSIONS:
+        print(f"[OCR] 正在解析图片: {os.path.basename(file_path)} ...")
+        try:
+            from image_parser import parse_image_with_description
+            result = parse_image_with_description(file_path)
+            print(f"[OCR] 图片解析完成，长度: {len(result)}")
+            return result
+        except Exception as e:
+            print(f"[OCR] 图片解析失败: {e}")
+            raise RuntimeError(f"图片解析失败: {e}")
 
     # 其他格式优先走 MinerU API
     print(f"[MinerU] 正在解析 {os.path.basename(file_path)} ...")

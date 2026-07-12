@@ -19,6 +19,8 @@ if _BACKEND_DIR not in sys.path:
 
 import rag_chain as _rag_chain
 import conversation_store as _conv_store
+from agent_tools import agent_with_tools
+from langgraph_agent import run_agent
 from config import TOP_K, WEB_SEARCH_COUNT
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -69,13 +71,28 @@ async def send_message(
 
     history = _conv_store.get_history(conversation_id)
 
-    response = _rag_chain.rag_query(
-        query=message.message,
-        session_id=conversation_id,
-        use_web=message.use_web or False,
-        use_rerank=True,
-        use_rewrite=True,
-    )
+    # 根据模式选择不同的处理方式
+    if message.mode == "agent":
+        # Agent模式：使用Function Calling
+        response = agent_with_tools(
+            query=message.message,
+            session_id=conversation_id
+        )
+    elif message.mode == "langgraph":
+        # LangGraph模式：使用高级智能体编排
+        response = run_agent(
+            query=message.message,
+            session_id=conversation_id
+        )
+    else:
+        # 默认RAG模式
+        response = _rag_chain.rag_query(
+            query=message.message,
+            session_id=conversation_id,
+            use_web=message.use_web or False,
+            use_rerank=True,
+            use_rewrite=True,
+        )
 
     # 从 Redis 获取来源（简化处理：检索阶段没有直接返回 sources）
     sources = []
@@ -107,16 +124,59 @@ async def websocket_endpoint(
             message_data = json.loads(data)
             query = message_data.get("message", "")
             use_web = message_data.get("use_web", False)
+            mode = message_data.get("mode", "rag")  # 默认使用 rag 模式
 
             full_answer = ""
 
-            async for chunk in _stream_rag_query(
-                query=query,
-                session_id=conversation_id,
-                use_web=use_web,
-            ):
-                full_answer += chunk
-                await websocket.send_text(json.dumps({"type": "chunk", "content": chunk}))
+            if mode == "agent":
+                # Agent 模式：使用 Function Calling
+                loop = asyncio.get_event_loop()
+
+                def stream_callback(token):
+                    # 在线程中调用回调，需要通过 asyncio 发送 WebSocket 消息
+                    asyncio.run_coroutine_threadsafe(
+                        websocket.send_text(json.dumps({"type": "chunk", "content": token})),
+                        loop
+                    )
+
+                def run_agent_stream():
+                    return agent_with_tools(
+                        query=query,
+                        session_id=conversation_id,
+                        stream_callback=stream_callback
+                    )
+
+                full_answer = await loop.run_in_executor(None, run_agent_stream)
+
+            elif mode == "langgraph":
+                # LangGraph 模式：使用高级智能体编排
+                loop = asyncio.get_event_loop()
+
+                def stream_callback(token):
+                    # 在线程中调用回调，需要通过 asyncio 发送 WebSocket 消息
+                    asyncio.run_coroutine_threadsafe(
+                        websocket.send_text(json.dumps({"type": "chunk", "content": token})),
+                        loop
+                    )
+
+                def run_langgraph_stream():
+                    return run_agent(
+                        query=query,
+                        session_id=conversation_id,
+                        stream_callback=stream_callback
+                    )
+
+                full_answer = await loop.run_in_executor(None, run_langgraph_stream)
+
+            else:
+                # 默认 RAG 模式
+                async for chunk in _stream_rag_query(
+                    query=query,
+                    session_id=conversation_id,
+                    use_web=use_web,
+                ):
+                    full_answer += chunk
+                    await websocket.send_text(json.dumps({"type": "chunk", "content": chunk}))
 
             await websocket.send_text(json.dumps({"type": "end", "content": full_answer}))
 

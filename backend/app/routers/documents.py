@@ -110,5 +110,7 @@ async def preview_document(
         with open(doc.file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
         return {"content": content, "file_type": file_ext}
+    elif file_ext in (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"):
+        return {"message": "Image file - OCR text available via parsing pipeline", "file_type": file_ext}
     else:
         return {"message": "Preview not supported for this file type", "file_type": file_ext}

@@ -6,36 +6,24 @@ from app.security import get_password_hash
 
 DEFAULT_ROLES = [
     {
-        "name": "技术负责人",
+        "name": "管理员",
         "description": "拥有系统所有权限，可管理所有知识库和用户",
         "permissions": ["all"],
     },
     {
-        "name": "团队负责人",
-        "description": "可管理本团队的知识库和文档",
-        "permissions": ["read_all", "write_team", "manage_team_users"],
-    },
-    {
-        "name": "开发工程师",
-        "description": "可查询知识库，上传文档",
-        "permissions": ["read_all", "write_documents"],
-    },
-    {
-        "name": "测试工程师",
-        "description": "仅可查询知识库",
-        "permissions": ["read_all"],
+        "name": "普通用户",
+        "description": "可使用知识库、对话机器人，管理个人知识库",
+        "permissions": ["read_all", "write_documents", "manage_personal_kb"],
     },
 ]
 
 DEFAULT_USERS = [
-    {
-        "username": "admin",
-        "email": "admin@example.com",
-        "password": "admin123",
-        "full_name": "管理员",
-        "department": "技术部",
-        "role_name": "技术负责人",
-    },
+    {"username": "admin", "email": "admin@example.com", "password": "admin123", "full_name": "管理员", "department": "技术部", "role_name": "管理员"},
+    {"username": "admin01", "email": "admin01@example.com", "password": "admin123", "full_name": "管理员01", "department": "技术部", "role_name": "管理员"},
+    {"username": "admin02", "email": "admin02@example.com", "password": "admin123", "full_name": "管理员02", "department": "技术部", "role_name": "管理员"},
+    {"username": "admin03", "email": "admin03@example.com", "password": "admin123", "full_name": "管理员03", "department": "技术部", "role_name": "管理员"},
+    {"username": "admin04", "email": "admin04@example.com", "password": "admin123", "full_name": "管理员04", "department": "技术部", "role_name": "管理员"},
+    {"username": "test", "email": "test@example.com", "password": "test123", "full_name": "测试用户", "department": "测试部", "role_name": "普通用户"},
 ]
 
 
@@ -62,7 +50,7 @@ def init_db():
                     password_hash=hashed_password,
                     full_name=user_data["full_name"],
                     department=user_data["department"],
-                    role_id=role.id if role else 3,
+                    role_id=role.id if role else 2,
                 )
                 db.add(user)
                 db.commit()

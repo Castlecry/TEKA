@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app import models
-from app.routers import auth, users, knowledge_bases, documents, chat, profile
+from app.routers import auth, users, knowledge_bases, documents, chat, profile, finetune
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -32,6 +32,7 @@ app.include_router(knowledge_bases.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(profile.router)
+app.include_router(finetune.router)
 
 
 @app.get("/")
