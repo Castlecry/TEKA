@@ -7,7 +7,8 @@
       "Bash(netstat -ano)",
       "Bash(taskkill //F //IM python.exe)",
       "Bash(taskkill //F //IM python3.exe)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(git commit -m 'Fix: PostgreSQL ENUM name, OpenSearch 2560-dim embedding, Windows GBK encoding *)"
     ]
   }
 }

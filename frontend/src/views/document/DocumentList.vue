@@ -1,65 +1,174 @@
 <template>
   <div class="document-list">
-    <div class="page-header">
-      <h2>文档管理</h2>
-      <el-button type="primary" icon="Upload" @click="showUploadDialog = true">上传文档</el-button>
+    <!-- 页面头部 -->
+    <div class="page-header fade-in">
+      <div class="header-left">
+        <div class="header-icon">
+          <el-icon :size="28"><Document /></el-icon>
+        </div>
+        <div class="header-text">
+          <h2>文档管理</h2>
+          <p class="subtitle">集中管理所有知识库文档，支持批量上传和向量生成</p>
+        </div>
+      </div>
+      <el-button type="primary" class="upload-btn" @click="showUploadDialog = true">
+        <el-icon><Upload /></el-icon>
+        <span>上传文档</span>
+      </el-button>
     </div>
 
-    <el-card>
-      <div class="search-bar">
-        <el-input placeholder="搜索文件名" v-model="searchText" style="width: 200px" />
-        <el-select placeholder="选择知识库" v-model="selectedKB" style="width: 150px">
-          <el-option label="全部" value="" />
-          <el-option label="公司规章制度" value="1" />
-          <el-option label="产品技术文档" value="2" />
-        </el-select>
-        <el-button icon="Search" @click="loadDocuments">搜索</el-button>
+    <!-- 搜索和筛选区域 -->
+    <div class="search-section fade-in-delay">
+      <el-card shadow="never" class="search-card">
+        <div class="search-bar">
+          <div class="search-input-wrapper">
+            <el-icon class="search-icon"><Search /></el-icon>
+            <el-input
+              v-model="searchText"
+              placeholder="搜索文件名..."
+              class="search-input"
+              @keyup.enter="loadDocuments"
+            />
+          </div>
+          <el-select v-model="selectedKB" placeholder="选择知识库" class="kb-select">
+            <el-option label="全部知识库" value="" />
+            <el-option label="公司规章制度" value="1" />
+            <el-option label="产品技术文档" value="2" />
+          </el-select>
+          <el-button type="primary" @click="loadDocuments" class="search-btn">
+            <el-icon><Search /></el-icon>
+            <span>搜索</span>
+          </el-button>
+        </div>
+      </el-card>
+    </div>
+
+    <!-- 表格区域 -->
+    <div class="table-section fade-in-delay-2">
+      <el-card shadow="never" class="table-card" v-if="documents.length > 0">
+        <el-table :data="documents" class="custom-table">
+          <el-table-column prop="filename" label="文件名" min-width="220">
+            <template #default="scope">
+              <div class="file-name-cell">
+                <div :class="['file-icon', getFileType(scope.row.filename)]">
+                  <el-icon :size="16"><Document /></el-icon>
+                </div>
+                <span class="file-name">{{ scope.row.filename }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="knowledge_base_id" label="知识库ID" width="130" align="center">
+            <template #default="scope">
+              <span class="kb-id-badge">{{ scope.row.knowledge_base_id }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="大小" width="110" align="center">
+            <template #default="scope">
+              <span class="file-size">{{ formatFileSize(scope.row.size) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="uploaded_at" label="上传时间" width="180" />
+          <el-table-column prop="chunk_count" label="切片数量" width="110" align="center">
+            <template #default="scope">
+              <span class="chunk-count">{{ scope.row.chunk_count || 0 }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="120" align="center">
+            <template #default="scope">
+              <el-tag :type="getStatusType(scope.row.status)" size="small" effect="light" round>
+                {{ getStatusText(scope.row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="260" align="center" fixed="right">
+            <template #default="scope">
+              <div class="action-btns">
+                <el-button type="primary" link size="small" @click="previewDocument(scope.row)">
+                  <el-icon><View /></el-icon>
+                  <span>预览</span>
+                </el-button>
+                <el-button type="warning" link size="small" @click="regenerateVector(scope.row)">
+                  <el-icon><RefreshRight /></el-icon>
+                  <span>重新生成向量</span>
+                </el-button>
+                <el-button type="danger" link size="small" @click="deleteDocument(scope.row)">
+                  <el-icon><Delete /></el-icon>
+                  <span>删除</span>
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+      <!-- 空状态 -->
+      <div v-else class="empty-state">
+        <div class="empty-icon">
+          <el-icon :size="64"><Document /></el-icon>
+        </div>
+        <h3>暂无文档</h3>
+        <p>您还没有上传任何文档，点击下方按钮开始上传</p>
+        <el-button type="primary" @click="showUploadDialog = true">
+          <el-icon><Upload /></el-icon>
+          <span>上传第一个文档</span>
+        </el-button>
       </div>
+    </div>
 
-      <el-table :data="documents" border>
-        <el-table-column prop="filename" label="文件名" />
-        <el-table-column prop="knowledge_base_id" label="知识库ID" />
-        <el-table-column label="大小">
-          <template #default="scope">
-            {{ formatFileSize(scope.row.size) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="uploaded_at" label="上传时间" />
-        <el-table-column prop="chunk_count" label="切片数量" />
-        <el-table-column prop="status" label="状态">
-          <template #default="scope">
-            <el-tag :type="getStatusType(scope.row.status)">
-              {{ getStatusText(scope.row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作">
-          <template #default="scope">
-            <el-button size="small" @click="previewDocument(scope.row)">预览</el-button>
-            <el-button size="small" @click="regenerateVector(scope.row)">重新生成向量</el-button>
-            <el-button size="small" type="danger" @click="deleteDocument(scope.row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+    <!-- 上传对话框 -->
+    <el-dialog v-model="showUploadDialog" title="" width="560px" class="upload-dialog">
+      <template #header>
+        <div class="dialog-header">
+          <div class="dialog-icon">
+            <el-icon :size="22"><Upload /></el-icon>
+          </div>
+          <div>
+            <h3>上传文档</h3>
+            <p>支持 PDF、DOCX、TXT、MD 格式，可批量上传</p>
+          </div>
+        </div>
+      </template>
 
-    <el-dialog v-model="showUploadDialog" title="上传文档" width="500px">
       <el-upload
-        class="upload-demo"
+        class="upload-area"
+        drag
         action="/api/documents/upload"
         :auto-upload="false"
         :on-change="handleFileChange"
         accept=".pdf,.docx,.txt,.md"
         multiple
       >
-        <el-button type="primary" icon="Upload">点击上传</el-button>
-        <template #tip>
-          <div class="el-upload__tip">支持 PDF、DOCX、TXT、MD 格式，可批量上传</div>
-        </template>
+        <el-icon class="upload-icon"><Upload /></el-icon>
+        <div class="upload-text">
+          <p class="upload-title">将文件拖到此处，或<em>点击上传</em></p>
+          <p class="upload-hint">支持 PDF、DOCX、TXT、MD 格式，可批量上传</p>
+        </div>
       </el-upload>
+
+      <div v-if="fileList.length > 0" class="file-list">
+        <div class="file-list-title">
+          <el-icon><Document /></el-icon>
+          <span>待上传文件 ({{ fileList.length }})</span>
+        </div>
+        <div class="file-list-items">
+          <div v-for="(file, index) in fileList" :key="index" class="file-item">
+            <div :class="['file-icon', getFileType(file.name)]">
+              <el-icon :size="14"><Document /></el-icon>
+            </div>
+            <span class="file-item-name">{{ file.name }}</span>
+            <span class="file-item-size">{{ formatFileSize(file.size) }}</span>
+          </div>
+        </div>
+      </div>
+
       <template #footer>
-        <el-button @click="showUploadDialog = false">取消</el-button>
-        <el-button type="primary" @click="uploadFiles">开始上传</el-button>
+        <div class="dialog-footer">
+          <el-button @click="showUploadDialog = false">取消</el-button>
+          <el-button type="primary" @click="uploadFiles">
+            <el-icon><Upload /></el-icon>
+            <span>开始上传</span>
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -85,6 +194,20 @@ const getStatusType = (status) => {
 const getStatusText = (status) => {
   const texts = { pending: '待处理', processing: '处理中', completed: '已完成', failed: '失败' }
   return texts[status] || status
+}
+
+const getFileType = (filename) => {
+  if (!filename) return 'default'
+  const ext = filename.split('.').pop().toLowerCase()
+  const types = { pdf: 'pdf', docx: 'word', doc: 'word', txt: 'text', md: 'markdown' }
+  return types[ext] || 'default'
+}
+
+const getFileIcon = (filename) => {
+  if (!filename) return 'Document'
+  const ext = filename.split('.').pop().toLowerCase()
+  const icons = { pdf: 'Document', docx: 'Document', doc: 'Document', txt: 'Document', md: 'Document' }
+  return icons[ext] || 'Document'
 }
 
 const searchText = ref('')
@@ -163,23 +286,446 @@ onMounted(() => {
 
 <style scoped>
 .document-list {
-  padding: 20px;
+  padding: 24px;
+  min-height: 100%;
+  background: var(--gray-50, #f9fafb);
 }
 
+/* 动画 */
+.fade-in {
+  animation: fadeInUp 0.5s ease-out;
+}
+.fade-in-delay {
+  animation: fadeInUp 0.5s ease-out 0.1s both;
+}
+.fade-in-delay-2 {
+  animation: fadeInUp 0.5s ease-out 0.2s both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 页面头部 */
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  padding: 24px 28px;
+  background: #fff;
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+  border: 1px solid var(--gray-100, #f3f4f6);
 }
 
-.page-header h2 {
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md, 10px);
+  background: linear-gradient(135deg, var(--primary, #4f6ef7), var(--primary-light, #6b8cff));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.header-text h2 {
+  margin: 0 0 4px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--gray-800, #1f2937);
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
   margin: 0;
+  font-size: 14px;
+  color: var(--gray-500, #6b7280);
+}
+
+.upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 22px;
+  border-radius: var(--radius-sm, 6px);
+  font-weight: 600;
+  font-size: 14px;
+  transition: var(--transition, all 0.25s cubic-bezier(0.4,0,0.2,1));
+  box-shadow: 0 2px 8px rgba(79, 110, 247, 0.3);
+}
+.upload-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(79, 110, 247, 0.4);
+}
+
+/* 搜索区域 */
+.search-card {
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--gray-100, #f3f4f6);
+  overflow: hidden;
+}
+.search-card :deep(.el-card__body) {
+  padding: 16px 20px;
 }
 
 .search-bar {
   display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--gray-400, #9ca3af);
+  z-index: 1;
+  font-size: 16px;
+}
+
+.search-input :deep(.el-input__wrapper) {
+  padding-left: 38px;
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: none;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  transition: var(--transition, all 0.25s cubic-bezier(0.4,0,0.2,1));
+}
+.search-input :deep(.el-input__wrapper):hover,
+.search-input :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--primary, #4f6ef7);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.1);
+}
+
+.kb-select {
+  width: 180px;
+}
+.kb-select :deep(.el-input__wrapper) {
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: none;
+  border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.search-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px 18px;
+}
+
+/* 表格区域 */
+.table-card {
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--gray-100, #f3f4f6);
+  overflow: hidden;
+}
+.table-card :deep(.el-card__body) {
+  padding: 0;
+}
+
+.custom-table {
+  --el-table-border-color: var(--gray-100, #f3f4f6);
+}
+
+.custom-table :deep(.el-table__header th) {
+  background: var(--gray-50, #f9fafb);
+  color: var(--gray-600, #4b5563);
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 14px 0;
+  border-bottom: 2px solid var(--gray-100, #f3f4f6);
+}
+
+.custom-table :deep(.el-table__row) {
+  transition: var(--transition, all 0.25s cubic-bezier(0.4,0,0.2,1));
+}
+.custom-table :deep(.el-table__row:hover > td) {
+  background: var(--primary-bg, #f0f3ff) !important;
+}
+.custom-table :deep(.el-table__row:hover) {
+  box-shadow: inset 0 0 0 1px var(--primary-bg, #f0f3ff);
+}
+.custom-table :deep(td) {
+  padding: 14px 0;
+  font-size: 14px;
+  color: var(--gray-700, #374151);
+}
+
+.file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm, 6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.file-icon.pdf {
+  background: #fef2f2;
+  color: #dc2626;
+}
+.file-icon.word {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.file-icon.text {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-600, #4b5563);
+}
+.file-icon.markdown {
+  background: #f0f9ff;
+  color: #0891b2;
+}
+.file-icon.default {
+  background: var(--gray-100, #f3f4f6);
+  color: var(--gray-500, #6b7280);
+}
+
+.file-name {
+  font-weight: 600;
+  color: var(--gray-800, #1f2937);
+}
+
+.kb-id-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  background: var(--primary-bg, #f0f3ff);
+  color: var(--primary, #4f6ef7);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.file-size {
+  font-size: 13px;
+  color: var(--gray-600, #4b5563);
+  font-weight: 500;
+}
+
+.chunk-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--gray-100, #f3f4f6);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--gray-700, #374151);
+}
+
+.action-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.action-btns .el-button {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  transition: var(--transition, all 0.25s cubic-bezier(0.4,0,0.2,1));
+}
+.action-btns .el-button:hover {
+  background: var(--gray-50, #f9fafb);
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  background: #fff;
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--gray-100, #f3f4f6);
+}
+.empty-icon {
+  color: var(--gray-300, #d1d5db);
+  margin-bottom: 20px;
+}
+.empty-state h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: var(--gray-700, #374151);
+  font-weight: 600;
+}
+.empty-state p {
+  margin: 0 0 24px 0;
+  font-size: 14px;
+  color: var(--gray-500, #6b7280);
+}
+
+/* 上传对话框 */
+.upload-dialog :deep(.el-dialog) {
+  border-radius: var(--radius-lg, 16px);
+  overflow: hidden;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.dialog-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md, 10px);
+  background: linear-gradient(135deg, var(--primary, #4f6ef7), var(--primary-light, #6b8cff));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.dialog-header h3 {
+  margin: 0 0 2px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gray-800, #1f2937);
+}
+.dialog-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gray-500, #6b7280);
+}
+
+.upload-area {
+  margin: 8px 0 20px;
+}
+
+.upload-area :deep(.el-upload-dragger) {
+  padding: 40px 20px;
+  border-radius: var(--radius-md, 10px);
+  border: 2px dashed var(--gray-300, #d1d5db);
+  background: var(--gray-50, #f9fafb);
+  transition: var(--transition, all 0.25s cubic-bezier(0.4,0,0.2,1));
+}
+.upload-area :deep(.el-upload-dragger:hover) {
+  border-color: var(--primary, #4f6ef7);
+  background: var(--primary-bg, #f0f3ff);
+}
+
+.upload-icon {
+  font-size: 48px;
+  color: var(--primary, #4f6ef7);
   margin-bottom: 16px;
+}
+
+.upload-text {
+  margin-top: 12px;
+}
+.upload-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--gray-700, #374151);
+  font-weight: 500;
+}
+.upload-title em {
+  color: var(--primary, #4f6ef7);
+  font-style: normal;
+  font-weight: 600;
+}
+.upload-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--gray-500, #6b7280);
+}
+
+.file-list {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--gray-50, #f9fafb);
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.file-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.file-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.file-item-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-800, #1f2937);
+}
+
+.file-item-size {
+  font-size: 13px;
+  color: var(--gray-500, #6b7280);
+  font-weight: 500;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.dialog-footer .el-button {
+  padding: 8px 20px;
+  border-radius: var(--radius-sm, 6px);
+  font-weight: 600;
 }
 </style>
