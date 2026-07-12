@@ -22,7 +22,7 @@ OPENSEARCH_USE_SSL = OPENSEARCH_HOST.startswith("https://")
 
 # Ollama (仅用于嵌入模型)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text:v1.5")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:4b")
 
 # DeepSeek API (用于 LLM 推理)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
