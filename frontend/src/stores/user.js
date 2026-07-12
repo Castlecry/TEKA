@@ -29,5 +29,20 @@ export const useUserStore = defineStore('user', () => {
     return res
   }
 
-  return { token, user, login, logout, getProfile }
+  // 检查用户是否有特定权限
+  const hasPermission = (permission) => {
+    if (!user.value || !user.value.role) return false
+    const permissions = user.value.role.permissions || []
+    // 如果有'all'权限，则拥有所有权限
+    if (permissions.includes('all')) return true
+    return permissions.includes(permission)
+  }
+
+  // 检查用户是否是管理员（技术负责人）
+  const isAdmin = computed(() => {
+    if (!user.value || !user.value.role) return false
+    return user.value.role.name === '技术负责人' || user.value.role.permissions?.includes('all')
+  })
+
+  return { token, user, login, logout, getProfile, hasPermission, isAdmin }
 })

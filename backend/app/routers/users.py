@@ -11,6 +11,13 @@ from app.security import get_password_hash
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+def require_admin(current_user: models.User = Depends(get_current_user)):
+    """检查用户是否是管理员"""
+    if not current_user.role or "all" not in (current_user.role.permissions or []):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return current_user
+
+
 @router.get("/", response_model=List[schemas.UserResponse])
 async def get_users(
     skip: int = 0,
@@ -18,7 +25,7 @@ async def get_users(
     username: Optional[str] = None,
     department: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin),
 ):
     query = db.query(models.User)
     if username:
@@ -33,7 +40,7 @@ async def get_users(
 async def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin),
 ):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -46,7 +53,7 @@ async def update_user(
     user_id: int,
     user_update: schemas.UserUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin),
 ):
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
@@ -64,7 +71,7 @@ async def update_user(
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin),
 ):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -76,7 +83,10 @@ async def delete_user(
 
 
 @router.get("/roles/", response_model=List[schemas.RoleResponse])
-async def get_roles(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+async def get_roles(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
     roles = db.query(models.Role).all()
     return roles
 
@@ -85,7 +95,7 @@ async def get_roles(db: Session = Depends(get_db), current_user: models.User = D
 async def create_role(
     role: schemas.RoleCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin),
 ):
     existing_role = db.query(models.Role).filter(models.Role.name == role.name).first()
     if existing_role:

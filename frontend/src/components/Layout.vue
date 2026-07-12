@@ -67,23 +67,21 @@
             <el-icon class="bell-icon" :size="18"><Bell /></el-icon>
             <span class="notification-badge"></span>
           </div>
-          <div class="user-info">
-            <div class="user-avatar">
-              <el-icon :size="16"><User /></el-icon>
-            </div>
-            <span class="user-name">{{ userStore.user?.username }}</span>
-            <el-dropdown @command="handleCommand">
-              <span class="dropdown-trigger">
-                <el-icon :size="14"><ArrowDown /></el-icon>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-                  <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
+          <el-dropdown @command="handleCommand" trigger="click">
+            <span class="user-info">
+              <div class="user-avatar">
+                <el-icon :size="16"><User /></el-icon>
+              </div>
+              <span class="user-name">{{ userStore.user?.username }}</span>
+              <el-icon :size="14" class="dropdown-arrow"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </header>
 
@@ -141,14 +139,23 @@ const coreMenuItems = [
   { path: '/chat', label: '对话机器人', icon: ChatSquare },
 ]
 
-const systemMenuItems = [
-  { path: '/system/users', label: '用户管理', icon: UserFilled },
-  { path: '/system/config', label: '系统配置', icon: Setting },
-  { path: '/logs', label: '对话日志', icon: Clock },
+const allSystemMenuItems = [
+  { path: '/system/users', label: '用户管理', icon: UserFilled, adminOnly: true },
+  { path: '/system/config', label: '系统配置', icon: Setting, adminOnly: true },
+  { path: '/logs', label: '对话日志', icon: Clock, adminOnly: false },
 ]
 
+// 根据用户角色过滤系统管理菜单
+const systemMenuItems = computed(() => {
+  if (userStore.isAdmin) {
+    return allSystemMenuItems
+  }
+  // 普通用户只能看到对话日志
+  return allSystemMenuItems.filter(item => !item.adminOnly)
+})
+
 const currentPageTitle = computed(() => {
-  const allItems = [...coreMenuItems, ...systemMenuItems]
+  const allItems = [...coreMenuItems, ...systemMenuItems.value]
   const item = allItems.find((i) => i.path === route.path)
   return item?.label || '首页'
 })
@@ -433,10 +440,15 @@ const handleCommand = (command) => {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: var(--transition);
+  outline: none;
 }
 
 .user-info:hover {
   background: var(--gray-100);
+}
+
+.dropdown-arrow {
+  color: var(--gray-400);
 }
 
 .user-avatar {

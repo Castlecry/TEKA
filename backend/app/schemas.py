@@ -56,6 +56,7 @@ class RoleCreate(RoleBase):
 
 class RoleResponse(RoleBase):
     id: int
+    permissions: Optional[List[str]] = []
     created_at: datetime
     updated_at: datetime
 
