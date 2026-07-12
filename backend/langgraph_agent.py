@@ -5,7 +5,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
 from agent_tools import execute_tool, TOOLS
-import requests
+from llm_client import _safe_request
 import json
 
 
@@ -64,8 +64,10 @@ def analyze_query(state: AgentState) -> AgentState:
 
 只返回JSON，不要其他内容。"""
     
-    response = requests.post(
+    response = _safe_request(
+        "POST",
         f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+        max_retries=3,
         headers=headers,
         json={
             "model": LLM_MODEL,
@@ -150,8 +152,10 @@ def generate_answer(state: AgentState) -> AgentState:
     
     if stream_callback:
         # 流式模式
-        response = requests.post(
+        response = _safe_request(
+            "POST",
             f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+            max_retries=3,
             headers=headers,
             json={
                 "model": LLM_MODEL,
@@ -186,8 +190,10 @@ def generate_answer(state: AgentState) -> AgentState:
                         continue
     else:
         # 非流式模式
-        response = requests.post(
+        response = _safe_request(
+            "POST",
             f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+            max_retries=3,
             headers=headers,
             json={
                 "model": LLM_MODEL,
@@ -199,7 +205,7 @@ def generate_answer(state: AgentState) -> AgentState:
             },
             timeout=60
         )
-        
+
         result = response.json()
         answer = result["choices"][0]["message"]["content"]
     

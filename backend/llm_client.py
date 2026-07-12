@@ -1,11 +1,54 @@
 """LLM 调用模块：支持 DeepSeek API 和 Ollama 本地模型"""
 
 import json
+import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from requests.exceptions import SSLError, ConnectionError, Timeout
 from config import (
     DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, LLM_MODEL,
     OLLAMA_HOST, OLLAMA_CHAT_MODEL,
 )
+
+
+def _build_session() -> requests.Session:
+    """构造带重试机制的 Session（针对 SSL/连接错误）"""
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1.5,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["POST", "GET"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_SESSION = _build_session()
+
+
+def _safe_request(method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
+    """带 SSL 重试的安全请求，自动切换到本地 Ollama 兜底"""
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = _SESSION.request(method, url, **kwargs)
+            return resp
+        except (SSLError, ConnectionError, Timeout) as e:
+            last_err = e
+            wait = 2 ** (attempt - 1)
+            print(f"[LLM] 网络异常 (第{attempt}/{max_retries}次): {type(e).__name__}: {e}，{wait}s 后重试")
+            if attempt < max_retries:
+                time.sleep(wait)
+            # SSL EOF 错误时刷新 session 强制重建连接池
+            if isinstance(e, SSLError):
+                global _SESSION
+                _SESSION = _build_session()
+    raise last_err
 
 
 def _ollama_chat(messages: list[dict], stream: bool = False,
@@ -32,7 +75,8 @@ def _ollama_chat(messages: list[dict], stream: bool = False,
     }
 
     if stream and stream_callback:
-        resp = requests.post(
+        resp = _safe_request(
+            "POST",
             f"{OLLAMA_HOST}/api/generate",
             json=payload,
             stream=True,
@@ -56,7 +100,8 @@ def _ollama_chat(messages: list[dict], stream: bool = False,
         return answer
     else:
         payload["stream"] = False
-        resp = requests.post(
+        resp = _safe_request(
+            "POST",
             f"{OLLAMA_HOST}/api/generate",
             json=payload,
             timeout=timeout,
@@ -83,8 +128,10 @@ def _deepseek_chat(messages: list[dict], stream: bool = False,
     if tool_choice:
         payload["tool_choice"] = tool_choice
 
-    resp = requests.post(
+    resp = _safe_request(
+        "POST",
         f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+        max_retries=3,
         headers=headers,
         json=payload,
         stream=stream,
@@ -131,8 +178,10 @@ def deepseek_chat_with_tools(messages: list[dict], tools: list,
         "tools": tools,
         "tool_choice": tool_choice,
     }
-    resp = requests.post(
+    resp = _safe_request(
+        "POST",
         f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+        max_retries=3,
         headers=headers,
         json=payload,
         timeout=timeout,
@@ -164,10 +213,20 @@ def chat_completion(messages: list[dict], provider: str = "api",
         return _ollama_chat(messages, stream=stream,
                            stream_callback=stream_callback, timeout=timeout)
     else:
-        # DeepSeek API
-        if tools:
-            # 带工具的非流式请求，返回完整对象
-            return deepseek_chat_with_tools(messages, tools, tool_choice, timeout)
-        return _deepseek_chat(messages, stream=stream,
-                             stream_callback=stream_callback,
-                             tools=tools, tool_choice=tool_choice, timeout=timeout)
+        # DeepSeek API，带 SSL 错误自动 fallback 到本地 Ollama
+        try:
+            if tools:
+                return deepseek_chat_with_tools(messages, tools, tool_choice, timeout)
+            return _deepseek_chat(messages, stream=stream,
+                                 stream_callback=stream_callback,
+                                 tools=tools, tool_choice=tool_choice, timeout=timeout)
+        except (SSLError, ConnectionError, Timeout) as e:
+            print(f"[LLM] DeepSeek API 不可用 ({type(e).__name__})，自动降级到本地 Ollama: {e}")
+            if tools:
+                # 工具调用不支持 fallback（Ollama 不支持 Function Calling）
+                raise RuntimeError(
+                    "DeepSeek API 当前不可用，且本地 Ollama 不支持 Function Calling。"
+                    "请稍后重试或切换到 RAG/LangGraph 模式。"
+                ) from e
+            return _ollama_chat(messages, stream=stream,
+                               stream_callback=stream_callback, timeout=timeout)

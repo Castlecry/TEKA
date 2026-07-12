@@ -1,12 +1,12 @@
 """Agent工具定义：Function Calling能力"""
 
 import json
-import requests
 from datetime import datetime
 from typing import Dict, Any, List
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
 from opensearch_store import search as vector_search
 from web_search import web_search
+from llm_client import _safe_request
 
 
 # 工具定义（符合OpenAI Function Calling格式）
@@ -229,8 +229,10 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
     messages.append({"role": "user", "content": query})
 
     try:
-        response = requests.post(
+        response = _safe_request(
+            "POST",
             f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+            max_retries=3,
             headers=headers,
             json={
                 "model": LLM_MODEL,
@@ -241,7 +243,7 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
             timeout=60
         )
         response.raise_for_status()
-    except requests.RequestException as e:
+    except Exception as e:
         error_msg = f"调用模型失败: {str(e)}"
         print(f"[Agent] {error_msg}")
         return error_msg
@@ -290,8 +292,10 @@ def _generate_with_messages(headers: dict, messages: list, stream_callback=None)
     """基于消息历史生成最终回答（流式或非流式）"""
     if stream_callback:
         try:
-            final_response = requests.post(
+            final_response = _safe_request(
+                "POST",
                 f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+                max_retries=3,
                 headers=headers,
                 json={
                     "model": LLM_MODEL,
@@ -322,12 +326,14 @@ def _generate_with_messages(headers: dict, messages: list, stream_callback=None)
                     except json.JSONDecodeError:
                         continue
             return answer
-        except requests.RequestException as e:
+        except Exception as e:
             return f"生成回答时出错: {str(e)}"
     else:
         try:
-            final_response = requests.post(
+            final_response = _safe_request(
+                "POST",
                 f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+                max_retries=3,
                 headers=headers,
                 json={
                     "model": LLM_MODEL,
@@ -338,5 +344,5 @@ def _generate_with_messages(headers: dict, messages: list, stream_callback=None)
             final_response.raise_for_status()
             final_result = final_response.json()
             return final_result["choices"][0]["message"]["content"]
-        except (requests.RequestException, KeyError, IndexError) as e:
+        except Exception as e:
             return f"生成回答时出错: {str(e)}"
