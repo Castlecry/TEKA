@@ -43,11 +43,13 @@ const routes = [
         path: 'system/users',
         name: 'UserManage',
         component: () => import('@/views/system/UserManage.vue'),
+        meta: { requiresAdmin: true },
       },
       {
         path: 'system/config',
         name: 'SystemConfig',
         component: () => import('@/views/system/SystemConfig.vue'),
+        meta: { requiresAdmin: true },
       },
       {
         path: 'logs',
@@ -70,13 +72,27 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
+  
+  // 检查是否需要登录
   if (to.meta.requiresAuth && !userStore.token) {
     next('/login')
-  } else if (!to.meta.requiresAuth && userStore.token) {
-    next('/')
-  } else {
-    next()
+    return
   }
+  
+  // 已登录用户访问登录页，重定向到首页
+  if (!to.meta.requiresAuth && userStore.token) {
+    next('/')
+    return
+  }
+  
+  // 检查是否需要管理员权限
+  if (to.meta.requiresAdmin && !userStore.isAdmin) {
+    // 普通用户访问管理员页面，重定向到首页
+    next('/')
+    return
+  }
+  
+  next()
 })
 
 export default router
