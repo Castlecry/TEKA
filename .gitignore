@@ -21,3 +21,6 @@ Sprint规划文档.md
 Sprint任务分配.md
 backed/knowledge_base/
 knowledge_base/
+backend/generated_docs/
+.trae/
+.claude/

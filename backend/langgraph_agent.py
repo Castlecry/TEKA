@@ -52,6 +52,7 @@ def analyze_query(state: AgentState) -> AgentState:
 3. calculate - 数学计算
 4. get_current_date - 获取当前系统日期时间
 5. get_system_info - 获取系统信息
+6. create_document - 生成 Word/PDF 文档（当用户要求导出/下载/生成文档时使用）
 
 重要规则：
 - 涉及"今天"、"现在"、"最新"、"当前"、"近期"等时间相关问题时，必须先调用 get_current_date 获取真实日期

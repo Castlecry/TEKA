@@ -71,25 +71,6 @@
               <span>{{ mode.label }}</span>
             </button>
           </div>
-          <!-- 模型提供商选择 -->
-          <div class="provider-switch" @click="modelProvider = modelProvider === 'api' ? 'local' : 'api'">
-            <div class="mode-indicator" :class="{ active: modelProvider === 'local' }"></div>
-            <el-icon :size="14" :color="modelProvider === 'local' ? 'var(--warning)' : 'var(--primary)'">
-              <Cpu />
-            </el-icon>
-            <span class="mode-text" :class="{ active: modelProvider === 'local' }">
-              {{ modelProvider === 'api' ? '云端API' : '本地模型' }}
-            </span>
-          </div>
-          <div class="mode-switch" @click="useWeb = !useWeb">
-            <div class="mode-indicator" :class="{ active: useWeb }"></div>
-            <el-icon :size="14" :color="useWeb ? 'var(--primary)' : 'var(--gray-400)'">
-              <Connection />
-            </el-icon>
-            <span class="mode-text" :class="{ active: useWeb }">
-              {{ useWeb ? '联网搜索' : '本地检索' }}
-            </span>
-          </div>
           <button class="settings-toggle" @click="settingsOpen = !settingsOpen">
             <el-icon :size="16"><Setting /></el-icon>
           </button>
@@ -169,6 +150,21 @@
                   <el-icon :size="16" class="attachment-download"><Download /></el-icon>
                 </a>
               </div>
+              <!-- 消息操作栏（仅 AI 消息） -->
+              <div v-if="message.role === 'assistant' && message.content" class="message-actions">
+                <button class="action-btn" :title="copiedIndex === index ? '已复制' : '复制'" @click="copyMessage(index)">
+                  <el-icon :size="14"><CopyDocument v-if="copiedIndex !== index" /><Check v-else /></el-icon>
+                </button>
+                <button class="action-btn" title="重新生成" :disabled="loading" @click="regenerateMessage(index)">
+                  <el-icon :size="14"><RefreshRight /></el-icon>
+                </button>
+                <button class="action-btn" :class="{ active: message.feedback === 1 }" title="有帮助" @click="submitFeedback(index, 1)">
+                  <el-icon :size="14"><Star /></el-icon>
+                </button>
+                <button class="action-btn" :class="{ active: message.feedback === -1 }" title="没帮助" @click="submitFeedback(index, -1)">
+                  <el-icon :size="14"><WarningFilled /></el-icon>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -200,10 +196,24 @@
           <span>{{ selectedFile.name }}</span>
           <el-icon :size="14" class="remove-file" @click="selectedFile = null"><Close /></el-icon>
         </div>
+        <!-- 工具栏：搜索模式 + 模型来源 -->
+        <div class="input-toolbar">
+          <div class="toolbar-left">
+            <button class="toolbar-btn" :class="{ active: useWeb }" @click="useWeb = !useWeb">
+              <el-icon :size="16"><Connection /></el-icon>
+              <span>{{ useWeb ? '联网搜索' : '智能搜索' }}</span>
+              <div v-if="useWeb" class="toolbar-dot"></div>
+            </button>
+            <button class="toolbar-btn" :class="{ active: modelProvider === 'local' }" @click="modelProvider = modelProvider === 'api' ? 'local' : 'api'">
+              <el-icon :size="16"><Cpu /></el-icon>
+              <span>{{ modelProvider === 'api' ? '云端API' : '本地模型' }}</span>
+            </button>
+          </div>
+        </div>
         <div class="chat-input">
           <!-- 文件上传按钮 -->
           <label class="upload-file-btn" :class="{ disabled: loading }">
-            <el-icon :size="18"><Plus /></el-icon>
+            <el-icon :size="18"><Paperclip /></el-icon>
             <input
               type="file"
               accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.png,.jpg,.jpeg"
@@ -285,7 +295,8 @@
 import { ref, reactive, nextTick, onMounted, watch } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
-  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document, Reading, Download
+  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document, Reading, Download, Paperclip,
+  CopyDocument, Check, RefreshRight, Star, WarningFilled
 } from '@element-plus/icons-vue'
 import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
@@ -304,6 +315,7 @@ const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
+const copiedIndex = ref(-1)
 let lastUserId = userStore.user?.id || null
 
 // 模式配置
@@ -502,6 +514,70 @@ const scrollToBottom = () => {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
     }
   })
+}
+
+// 复制回答
+const copyMessage = async (index) => {
+  const msg = messages.value[index]
+  if (!msg) return
+  try {
+    await navigator.clipboard.writeText(msg.content)
+    copiedIndex.value = index
+    setTimeout(() => { copiedIndex.value = -1 }, 1500)
+  } catch (e) {
+    // 降级方案
+    const textarea = document.createElement('textarea')
+    textarea.value = msg.content
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    copiedIndex.value = index
+    setTimeout(() => { copiedIndex.value = -1 }, 1500)
+  }
+}
+
+// 重新生成
+const regenerateMessage = (index) => {
+  if (loading.value) return
+  // 找到对应的用户问题（上一条 user 消息）
+  let userMsgIndex = -1
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') {
+      userMsgIndex = i
+      break
+    }
+  }
+  if (userMsgIndex < 0) return
+
+  const userMsg = messages.value[userMsgIndex].content
+  // 删除从用户消息开始的后续消息
+  messages.value.splice(userMsgIndex)
+  // 重新发送
+  inputMessage.value = userMsg.replace(/^\[文件: [^\]]+\] /, '')
+  sendMessage()
+}
+
+// 消息反馈（点赞/点踩）
+const submitFeedback = async (index, rating) => {
+  const msg = messages.value[index]
+  if (!msg || msg.role !== 'assistant') return
+
+  // 乐观更新
+  const oldRating = msg.feedback || 0
+  msg.feedback = oldRating === rating ? 0 : rating
+
+  try {
+    await request.post('/chat/feedback', {
+      conversation_id: currentSessionId.value,
+      message_id: `msg_${index}`,
+      rating: msg.feedback,
+    })
+  } catch (e) {
+    // 失败回滚
+    msg.feedback = oldRating
+    console.error('反馈提交失败', e)
+  }
 }
 
 const resetChatState = () => {
@@ -832,68 +908,184 @@ watch(
   flex-shrink: 0;
 }
 
-.provider-switch,
-.mode-switch {
+/* ========== 输入区域 ========== */
+.chat-input-wrapper {
+  padding: 12px 24px 20px;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+/* 输入工具栏 */
+.input-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 14px;
+  border: 1px solid transparent;
   border-radius: 20px;
-  background: var(--gray-100);
+  background: transparent;
+  color: var(--gray-500);
+  font-size: 13px;
   cursor: pointer;
   transition: var(--transition);
+  position: relative;
   user-select: none;
 }
 
-.provider-switch:hover,
-.mode-switch:hover {
-  background: var(--gray-200);
+.toolbar-btn:hover {
+  background: rgba(79, 110, 247, 0.08);
+  color: var(--primary);
 }
 
-.mode-indicator {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--gray-400);
-  transition: var(--transition);
-}
-
-.mode-indicator.active {
-  background: var(--primary);
-  box-shadow: 0 0 8px var(--primary);
-}
-
-.mode-text {
-  font-size: 13px;
-  color: var(--gray-500);
-  transition: var(--transition);
-}
-
-.mode-text.active {
+.toolbar-btn.active {
+  background: var(--primary-bg);
+  border-color: var(--primary-light);
   color: var(--primary);
   font-weight: 500;
 }
 
-.settings-toggle {
+.toolbar-btn .toolbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.chat-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 20px;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 28px;
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+}
+
+.chat-input:focus-within {
+  border-color: var(--primary-light);
+  box-shadow: 0 4px 16px rgba(79, 110, 247, 0.12);
+}
+
+/* 文件上传按钮 */
+.upload-file-btn {
   width: 36px;
   height: 36px;
-  border: none;
-  background: var(--gray-50);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   color: var(--gray-500);
   transition: var(--transition);
+  flex-shrink: 0;
 }
-
-.settings-toggle:hover {
+.upload-file-btn:hover {
   background: var(--gray-100);
-  color: var(--gray-700);
+  color: var(--primary);
+}
+.upload-file-btn.disabled {
+  pointer-events: none;
+  opacity: 0.4;
 }
 
-/* ========== 消息区域 ========== */
+/* 已选文件标签 */
+.selected-file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-light);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--primary);
+}
+.selected-file-tag .remove-file {
+  cursor: pointer;
+  color: var(--gray-400);
+}
+.selected-file-tag .remove-file:hover {
+  color: var(--danger);
+}
+
+.input-field {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--gray-800);
+  background: transparent;
+  line-height: 1.5;
+  padding: 10px 0;
+}
+
+.input-field::placeholder {
+  color: var(--gray-400);
+}
+
+.input-field:disabled {
+  opacity: 0.6;
+}
+
+.send-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gray-400);
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.send-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(79, 110, 247, 0.3);
+}
+
+.send-btn.active:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(79, 110, 247, 0.4);
+}
+
+.send-btn:disabled {
+  cursor: not-allowed;
+}
+
+.input-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--gray-400);
+  margin-top: 8px;
+}
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -1191,6 +1383,71 @@ watch(
 
 .attachment-card.pdf:hover .attachment-download {
   color: #dc2626;
+}
+
+/* 消息操作栏 */
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-100);
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.message-item.assistant:hover .message-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gray-400);
+  transition: var(--transition);
+}
+
+.action-btn:hover {
+  background: var(--gray-100);
+  color: var(--primary);
+}
+
+.action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.action-btn.active {
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
+/* 设置按钮 */
+.settings-toggle {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gray-500);
+  transition: var(--transition);
+}
+
+.settings-toggle:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
 }
 
 /* 打字指示器 */

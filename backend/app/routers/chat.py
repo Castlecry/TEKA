@@ -99,6 +99,12 @@ async def send_message(
             provider=provider,
         )
 
+    # 提取最终回答文本（兼容 dict 和 str 两种返回格式）
+    if isinstance(response, dict):
+        answer_text = response.get("answer", str(response))
+    else:
+        answer_text = str(response)
+
     # 从 Redis 获取来源（简化处理：检索阶段没有直接返回 sources）
     sources = []
 
@@ -106,7 +112,7 @@ async def send_message(
         conversation_id=conversation_id,
         user_id=current_user.id,
         query=message.message,
-        answer=response,
+        answer=answer_text,
         sources=sources,
         knowledge_base_ids=message.knowledge_base_ids or [],
     )
@@ -183,8 +189,18 @@ async def send_message_stream(
         from app.database import SessionLocal
 
         await asyncio.sleep(1)
-        while _queue.empty() or (_queue.qsize() == 1 and "__DONE__" not in _queue._queue):
-            await asyncio.sleep(0.1)
+        # 等待流式输出完成（通过哨兵标记判断）
+        done_marker = "__LOG_SAVE_DONE__"
+        while True:
+            # 检查队列末尾是否有完成标记
+            # 使用一个独立的标记来判断，避免访问私有属性
+            await asyncio.sleep(0.2)
+            if _queue.empty():
+                continue
+            # 尝试偷看第一个元素（不取出）—— 用 task_done 反向判断
+            # 更简单的做法：用一个共享事件
+            if _is_stream_done.is_set():
+                break
 
         full_text = "".join(_full_answer)
         db = SessionLocal()
@@ -206,6 +222,7 @@ async def send_message_stream(
             db.close()
 
     _queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _is_stream_done = asyncio.Event()
 
     asyncio.create_task(run_rag())
     asyncio.create_task(save_log())
@@ -218,9 +235,11 @@ async def send_message_stream(
                 if _attachments:
                     yield f"data: {json.dumps({'type': 'attachments', 'items': _attachments}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
+                _is_stream_done.set()
                 break
             if token.startswith("__ERROR__:"):
                 yield f"data: {json.dumps({'type': 'error', 'content': token[10:]})}\n\n"
+                _is_stream_done.set()
             else:
                 yield f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n"
 
@@ -276,11 +295,13 @@ async def upload_and_ask(
         use_rewrite=False,
     )
 
+    answer_text = response.get("answer", str(response)) if isinstance(response, dict) else str(response)
+
     db_log = models.ConversationLog(
         conversation_id=conv_id,
         user_id=current_user.id,
         query=f"[文件: {file.filename}] {message}",
-        answer=response,
+        answer=answer_text,
         sources=[],
         knowledge_base_ids=[],
     )
@@ -457,3 +478,68 @@ async def delete_logs_batch(
         deleted_count += 1
     db.commit()
     return {"message": f"已删除 {deleted_count} 条日志", "deleted_count": deleted_count}
+
+
+# ========== 消息反馈 ==========
+
+from pydantic import BaseModel
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    message_id: str
+    rating: int  # 1 = 点赞, -1 = 点踩
+    correction: Optional[str] = None
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    req: FeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """提交消息反馈（点赞/点踩 + 修正意见）"""
+    if req.rating not in (1, -1):
+        raise HTTPException(status_code=400, detail="rating 只能是 1 或 -1")
+
+    existing = db.query(models.Feedback).filter(
+        models.Feedback.conversation_id == req.conversation_id,
+        models.Feedback.message_id == req.message_id,
+        models.Feedback.user_id == current_user.id,
+    ).first()
+
+    if existing:
+        existing.rating = req.rating
+        existing.correction = req.correction
+        db.commit()
+        return {"message": "反馈已更新", "id": existing.id}
+
+    fb = models.Feedback(
+        conversation_id=req.conversation_id,
+        message_id=req.message_id,
+        user_id=current_user.id,
+        rating=req.rating,
+        correction=req.correction,
+    )
+    db.add(fb)
+    db.commit()
+    db.refresh(fb)
+    return {"message": "反馈已提交", "id": fb.id}
+
+
+@router.get("/feedback/{conversation_id}/{message_id}")
+async def get_feedback(
+    conversation_id: str,
+    message_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """获取某条消息的当前用户反馈"""
+    fb = db.query(models.Feedback).filter(
+        models.Feedback.conversation_id == conversation_id,
+        models.Feedback.message_id == message_id,
+        models.Feedback.user_id == current_user.id,
+    ).first()
+    if not fb:
+        return {"rating": 0, "correction": ""}
+    return {"rating": fb.rating, "correction": fb.correction or ""}
