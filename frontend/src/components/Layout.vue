@@ -101,14 +101,14 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  Bot,
-  LayoutDashboard,
-  FolderOpen,
-  FileText,
-  MessageSquare,
-  Users,
-  Settings,
-  FileHistory,
+  ChatLineRound,
+  Odometer,
+  FolderOpened,
+  Document,
+  ChatSquare,
+  UserFilled,
+  Setting,
+  Clock,
   User,
   ArrowDown,
   Bell,
@@ -120,30 +120,30 @@ const route = useRoute()
 const userStore = useUserStore()
 
 const icons = {
-  Bot,
-  LayoutDashboard,
-  FolderOpen,
-  FileText,
-  MessageSquare,
-  Users,
-  Settings,
-  FileHistory,
+  Bot: ChatLineRound,
+  Odometer,
+  FolderOpened,
+  Document,
+  ChatSquare,
+  UserFilled,
+  Setting,
+  Clock,
   User,
   ArrowDown,
   Bell,
 }
 
 const coreMenuItems = [
-  { path: '/', label: '仪表盘', icon: LayoutDashboard },
-  { path: '/knowledge', label: '知识库管理', icon: FolderOpen },
-  { path: '/documents', label: '文档管理', icon: FileText },
-  { path: '/chat', label: '对话机器人', icon: MessageSquare },
+  { path: '/', label: '仪表盘', icon: Odometer },
+  { path: '/knowledge', label: '知识库管理', icon: FolderOpened },
+  { path: '/documents', label: '文档管理', icon: Document },
+  { path: '/chat', label: '对话机器人', icon: ChatSquare },
 ]
 
 const systemMenuItems = [
-  { path: '/system/users', label: '用户管理', icon: Users },
-  { path: '/system/config', label: '系统配置', icon: Settings },
-  { path: '/logs', label: '对话日志', icon: FileHistory },
+  { path: '/system/users', label: '用户管理', icon: UserFilled },
+  { path: '/system/config', label: '系统配置', icon: Setting },
+  { path: '/logs', label: '对话日志', icon: Clock },
 ]
 
 const currentPageTitle = computed(() => {
