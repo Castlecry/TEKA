@@ -36,5 +36,6 @@ from config import (  # noqa: E402, F401
     WEB_SEARCH_COUNT,
     HISTORY_TURNS,
     LLM_TIMEOUT,
+    EMBED_DIMENSION,
     SUPPORTED_EXTENSIONS,
 )

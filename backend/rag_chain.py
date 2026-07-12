@@ -1,6 +1,7 @@
 """RAG 链：查询重述 → 检索 → Rerank 精排 → LLM 流式生成"""
 
 import json
+import sys
 import requests
 from config import DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, LLM_MODEL, TOP_K
 from opensearch_store import search as vector_search
@@ -8,6 +9,17 @@ from web_search import web_search
 from conversation_store import save_message, get_history
 from query_rewriter import rewrite_query
 from reranker import rerank_chunks
+
+
+def _safe_print(*args, **kwargs):
+    """安全打印，忽略 Windows GBK 编码错误"""
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        try:
+            print(*(str(a).encode('ascii', errors='replace').decode('ascii') for a in args), **kwargs)
+        except Exception:
+            pass
 
 SYSTEM_PROMPT = """你是一个智能助手，基于检索到的信息回答问题。
 请优先使用提供的参考资料回答，如果资料不足以回答，可以结合你的知识补充。
@@ -39,12 +51,12 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
 
     # 2. 向量检索
     local_results = vector_search(search_query, top_k=TOP_K)
-    print(f"[RAG] 向量检索返回 {len(local_results)} 条结果")
+    _safe_print(f"[RAG] 向量检索返回 {len(local_results)} 条结果")
 
     # 3. Rerank 精排
     if use_rerank and len(local_results) > 1:
         local_results = rerank_chunks(search_query, local_results, top_k=3)
-        print(f"[RAG] Rerank 精排后保留 {len(local_results)} 条结果")
+        _safe_print(f"[RAG] Rerank 精排后保留 {len(local_results)} 条结果")
 
     # 4. 构建上下文
     context_parts = []
@@ -74,7 +86,7 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
     messages.append({"role": "user", "content": user_msg})
 
     # 8. 调用 DeepSeek API（流式输出）
-    print(f"\n[RAG] 调用 {LLM_MODEL} 生成回答...\n", flush=True)
+    _safe_print(f"\n[RAG] 调用 {LLM_MODEL} 生成回答...\n", flush=True)
 
     resp = requests.post(
         f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
@@ -103,12 +115,12 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
                 if stream_callback:
                     stream_callback(token)
                 else:
-                    print(token, end="", flush=True)
+                    _safe_print(token, end="", flush=True)
         except json.JSONDecodeError:
             continue
 
-    print()
-    print(f"\n[RAG] 生成完毕，共 {len(answer)} 字符", flush=True)
+    _safe_print()
+    _safe_print(f"\n[RAG] 生成完毕，共 {len(answer)} 字符", flush=True)
 
     # 9. 保存对话历史
     save_message(session_id, "user", query)

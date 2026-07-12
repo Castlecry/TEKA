@@ -9,6 +9,7 @@ import warnings
 from config import (
     OPENSEARCH_HOST, OPENSEARCH_USER, OPENSEARCH_PASSWORD,
     OPENSEARCH_INDEX, TOP_K, EMBED_MODEL, OPENSEARCH_USE_SSL,
+    EMBED_DIMENSION,
 )
 from embedder import embed_text
 
@@ -34,7 +35,7 @@ INDEX_SETTINGS = {
             "content": {"type": "text"},
             "embedding": {
                 "type": "knn_vector",
-                "dimension": 768,
+                "dimension": EMBED_DIMENSION,
                 "method": {
                     "name": "hnsw",
                     "space_type": "cosinesimil",

@@ -70,7 +70,7 @@ class Document(Base):
     file_type = Column(String(50))
     size = Column(Integer)
     chunk_count = Column(Integer, default=0)
-    status = Column(Enum("pending", "processing", "completed", "failed"), default="pending")
+    status = Column(Enum("pending", "processing", "completed", "failed", name="document_status"), default="pending")
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

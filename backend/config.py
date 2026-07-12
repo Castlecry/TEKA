@@ -55,6 +55,9 @@ WEB_SEARCH_COUNT = int(os.getenv("WEB_SEARCH_COUNT", "3"))
 # 对话历史
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
 
+# 嵌入维度（qwen3-embedding:4b = 2560, nomic-embed-text = 768）
+EMBED_DIMENSION = int(os.getenv("EMBED_DIMENSION", "2560"))
+
 # LLM 推理超时（秒）
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "600"))
 
