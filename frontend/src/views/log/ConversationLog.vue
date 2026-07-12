@@ -191,18 +191,20 @@ const logs = ref([])
 
 const getInitial = (userId) => {
   if (!userId) return '?'
-  return userId.charAt(0).toUpperCase()
+  const str = String(userId)
+  return str.charAt(0).toUpperCase()
 }
 
 const getAvatarColor = (userId) => {
   if (!userId) return 'var(--gray-400)'
+  const str = String(userId)
   const colors = [
     '#4f6ef7', '#22c55e', '#f59e0b', '#ef4444',
     '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
   ]
   let hash = 0
-  for (let i = 0; i < userId.length; i++) {
-    hash = userId.charCodeAt(i) + ((hash << 5) - hash)
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
   }
   return colors[Math.abs(hash) % colors.length]
 }

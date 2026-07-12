@@ -171,6 +171,39 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 预览对话框 -->
+    <el-dialog v-model="showPreviewDialog" width="720px" class="preview-dialog" destroy-on-close>
+      <template #header>
+        <div class="dialog-header">
+          <div class="dialog-icon" style="background: linear-gradient(135deg, #0891b2, #06b6d4);">
+            <el-icon :size="18"><View /></el-icon>
+          </div>
+          <div>
+            <h3>{{ previewFilename }}</h3>
+            <p>
+              <el-tag :type="getStatusType(previewStatus)" size="small" effect="light" round>
+                {{ getStatusText(previewStatus) }}
+              </el-tag>
+            </p>
+          </div>
+        </div>
+      </template>
+
+      <div v-loading="previewLoading" class="preview-body">
+        <pre v-if="previewContent" class="preview-content">{{ previewContent }}</pre>
+        <div v-else-if="!previewLoading" class="preview-empty">
+          <el-icon :size="48" color="var(--gray-300)"><Document /></el-icon>
+          <p>暂无可预览的内容</p>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button type="primary" @click="showPreviewDialog = false">关闭</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -762,5 +795,45 @@ onMounted(() => {
   padding: 8px 20px;
   border-radius: var(--radius-sm, 6px);
   font-weight: 600;
+}
+
+/* 预览对话框 */
+.preview-dialog :deep(.el-dialog) {
+  border-radius: var(--radius-lg, 16px);
+  overflow: hidden;
+}
+
+.preview-body {
+  min-height: 400px;
+  max-height: 600px;
+  overflow: auto;
+  background: var(--gray-50, #f9fafb);
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--gray-200, #e5e7eb);
+  padding: 20px;
+}
+
+.preview-content {
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gray-700, #374151);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: var(--gray-400, #9ca3af);
+}
+
+.preview-empty p {
+  margin-top: 12px;
+  font-size: 14px;
 }
 </style>

@@ -262,7 +262,7 @@
 import { ref, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
-  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor
+  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document
 } from '@element-plus/icons-vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import RichContent from '@/components/RichContent.vue'
