@@ -259,12 +259,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, nextTick, onMounted } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
   Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document
 } from '@element-plus/icons-vue'
-import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
 
@@ -279,12 +278,6 @@ const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
-
-// WebSocket 相关
-const ws = ref(null)
-const streamingMessage = ref('')
-const reconnectAttempts = ref(0)
-const maxReconnectAttempts = 5
 
 // 模式配置
 const chatModes = [
@@ -350,59 +343,6 @@ const loadHistory = async (sessionId) => {
   }
 }
 
-const connectWebSocket = () => {
-  if (ws.value) {
-    ws.value.close()
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/api/chat/ws/${currentSessionId.value}`
-
-  ws.value = new WebSocket(wsUrl)
-
-  ws.value.onopen = () => {
-    console.log('WebSocket 连接成功')
-    reconnectAttempts.value = 0
-  }
-
-  ws.value.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-
-      if (data.type === 'chunk') {
-        streamingMessage.value += data.content
-        scrollToBottom()
-      } else if (data.type === 'end') {
-        messages.value.push({
-          role: 'assistant',
-          content: data.content || streamingMessage.value,
-          created_at: new Date().toLocaleTimeString(),
-        })
-        streamingMessage.value = ''
-        loading.value = false
-        scrollToBottom()
-      }
-    } catch (e) {
-      console.error('解析 WebSocket 消息失败', e)
-    }
-  }
-
-  ws.value.onerror = (error) => {
-    console.error('WebSocket 错误:', error)
-  }
-
-  ws.value.onclose = () => {
-    console.log('WebSocket 连接关闭')
-    if (reconnectAttempts.value < maxReconnectAttempts) {
-      setTimeout(() => {
-        reconnectAttempts.value++
-        console.log(`尝试重连 (${reconnectAttempts.value}/${maxReconnectAttempts})`)
-        connectWebSocket()
-      }, 2000)
-    }
-  }
-}
-
 const selectedFile = ref(null)
 
 const onFileSelected = (event) => {
@@ -431,7 +371,6 @@ const sendMessage = async () => {
   })
 
   loading.value = true
-  streamingMessage.value = ''
   scrollToBottom()
 
   try {
@@ -533,23 +472,9 @@ const scrollToBottom = () => {
   })
 }
 
-// 监听会话切换，重新建立 WebSocket 连接
-watch(currentSessionId, (newId) => {
-  connectWebSocket()
-  loadHistory(newId)
-})
-
 onMounted(() => {
   loadSessions()
   loadHistory(currentSessionId.value)
-  connectWebSocket()
-})
-
-onUnmounted(() => {
-  if (ws.value) {
-    ws.value.close()
-    ws.value = null
-  }
 })
 </script>
 

@@ -67,7 +67,11 @@
               <span class="file-size">{{ formatFileSize(scope.row.size) }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="uploaded_at" label="上传时间" width="180" />
+          <el-table-column label="上传时间" width="180">
+            <template #default="scope">
+              <span class="upload-time">{{ formatDate(scope.row.uploaded_at) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="chunk_count" label="切片数量" width="110" align="center">
             <template #default="scope">
               <span class="chunk-count">{{ scope.row.chunk_count || 0 }}</span>
@@ -211,7 +215,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Document, Upload, Refresh, View, Delete, RefreshRight, Loading, Search
+  Document, Upload, View, Delete, RefreshRight, Search
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 
@@ -220,6 +224,16 @@ const formatFileSize = (bytes) => {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  })
 }
 
 const getStatusType = (status) => {

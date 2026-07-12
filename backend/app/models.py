@@ -53,7 +53,7 @@ class KnowledgeBase(Base):
     description = Column(Text)
     department = Column(String(50))
     owner_id = Column(Integer, ForeignKey("users.id"))
-    embedding_model = Column(String(100), default="qwen3-embedding:4b")
+    embedding_model = Column(String(100), default="qwen3-embedding:0.6b")
     is_personal = Column(Boolean, default=False)  # 是否为个人知识库
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

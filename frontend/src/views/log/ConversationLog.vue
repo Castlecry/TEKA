@@ -190,13 +190,13 @@ const loading = ref(false)
 const logs = ref([])
 
 const getInitial = (userId) => {
-  if (!userId) return '?'
+  if (!userId && userId !== 0) return '?'
   const str = String(userId)
   return str.charAt(0).toUpperCase()
 }
 
 const getAvatarColor = (userId) => {
-  if (!userId) return 'var(--gray-400)'
+  if (!userId && userId !== 0) return 'var(--gray-400)'
   const str = String(userId)
   const colors = [
     '#4f6ef7', '#22c55e', '#f59e0b', '#ef4444',

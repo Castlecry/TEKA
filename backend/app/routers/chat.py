@@ -3,9 +3,9 @@ import sys
 import os
 import uuid
 import asyncio
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from sqlalchemy.orm import Session
@@ -27,43 +27,6 @@ from langgraph_agent import run_agent
 from config import TOP_K, WEB_SEARCH_COUNT
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-async def _stream_rag_query(query: str, session_id: str, use_web: bool = False,
-                            use_rerank: bool = True, use_rewrite: bool = True,
-                            knowledge_base_ids: Optional[List[int]] = None,
-                            provider: str = "api"):
-    """将 rag_chain.rag_query 的回调模式包装为 async generator"""
-    chunks: list = []
-    loop = asyncio.get_event_loop()
-
-    def _on_token(token: str):
-        chunks.append(token)
-
-    await loop.run_in_executor(
-        None,
-        lambda: _rag_chain.rag_query(
-            query=query,
-            session_id=session_id,
-            use_web=use_web,
-            use_rerank=use_rerank,
-            use_rewrite=use_rewrite,
-            stream_callback=_on_token,
-            provider=provider,
-        )
-    )
-
-    for token in chunks:
-        yield token
-
-
-def _extract_last_answer(session_id: str) -> str:
-    """从 Redis 对话历史中提取最后一条 assistant 消息"""
-    history = _conv_store.get_history(session_id, turns=1)
-    for msg in reversed(history):
-        if msg.get("role") == "assistant":
-            return msg.get("content", "")
-    return ""
 
 
 @router.post("/message")
@@ -339,81 +302,6 @@ async def upload_and_ask(
         "conversation_id": conv_id,
         "filename": file.filename,
     }
-
-
-@router.websocket("/ws/{conversation_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    conversation_id: str,
-):
-    await websocket.accept()
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            query = message_data.get("message", "")
-            use_web = message_data.get("use_web", False)
-            mode = message_data.get("mode", "rag")  # rag, agent, langgraph
-            provider = message_data.get("provider", "api")  # api, local
-
-            full_answer = ""
-
-            if mode == "agent":
-                # Agent 模式：使用 Function Calling
-                loop = asyncio.get_event_loop()
-
-                def stream_callback(token):
-                    # 在线程中调用回调，需要通过 asyncio 发送 WebSocket 消息
-                    asyncio.run_coroutine_threadsafe(
-                        websocket.send_text(json.dumps({"type": "chunk", "content": token})),
-                        loop
-                    )
-
-                def run_agent_stream():
-                    return agent_with_tools(
-                        query=query,
-                        session_id=conversation_id,
-                        stream_callback=stream_callback
-                    )
-
-                full_answer = await loop.run_in_executor(None, run_agent_stream)
-
-            elif mode == "langgraph":
-                # LangGraph 模式：使用高级智能体编排
-                loop = asyncio.get_event_loop()
-
-                def stream_callback(token):
-                    # 在线程中调用回调，需要通过 asyncio 发送 WebSocket 消息
-                    asyncio.run_coroutine_threadsafe(
-                        websocket.send_text(json.dumps({"type": "chunk", "content": token})),
-                        loop
-                    )
-
-                def run_langgraph_stream():
-                    return run_agent(
-                        query=query,
-                        session_id=conversation_id,
-                        stream_callback=stream_callback
-                    )
-
-                full_answer = await loop.run_in_executor(None, run_langgraph_stream)
-
-            else:
-                # 默认 RAG 模式
-                async for chunk in _stream_rag_query(
-                    query=query,
-                    session_id=conversation_id,
-                    use_web=use_web,
-                    provider=provider,
-                ):
-                    full_answer += chunk
-                    await websocket.send_text(json.dumps({"type": "chunk", "content": chunk}))
-
-            await websocket.send_text(json.dumps({"type": "end", "content": full_answer}))
-
-    except WebSocketDisconnect:
-        pass
 
 
 @router.get("/history/{conversation_id}")

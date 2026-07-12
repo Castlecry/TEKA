@@ -68,7 +68,7 @@ class KnowledgeBaseBase(BaseModel):
     name: str
     description: Optional[str] = None
     department: Optional[str] = None
-    embedding_model: Optional[str] = "qwen3-embedding:4b"
+    embedding_model: Optional[str] = "qwen3-embedding:0.6b"
 
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
