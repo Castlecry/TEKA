@@ -87,9 +87,7 @@
 
       <div class="content-area">
         <router-view v-slot="{ Component, route }">
-          <transition name="fade-slide" mode="out-in" type="transition">
-            <component :is="Component" :key="route.fullPath" />
-          </transition>
+          <component :is="Component" :key="route.fullPath" />
         </router-view>
       </div>
     </main>

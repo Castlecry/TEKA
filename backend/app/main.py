@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import engine, get_db
 from app import models
-from app.routers import auth, users, knowledge_bases, documents, chat, profile, finetune
+from app.routers import auth, users, knowledge_bases, documents, chat, profile, finetune, system_config
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -38,6 +38,7 @@ app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(profile.router)
 app.include_router(finetune.router)
+app.include_router(system_config.router)
 
 
 @app.get("/")

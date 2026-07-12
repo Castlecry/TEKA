@@ -261,6 +261,68 @@ async def get_conversation_sessions(
     return list(sessions.values())
 
 
+@router.get("/logs")
+async def get_conversation_logs(
+    search: Optional[str] = None,
+    user_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """获取对话日志列表。管理员看全部，普通用户只看自己的。"""
+    query = db.query(models.ConversationLog)
+
+    # 权限过滤
+    is_admin = current_user.role and "all" in (current_user.role.permissions or [])
+    if not is_admin:
+        query = query.filter(models.ConversationLog.user_id == current_user.id)
+
+    # 搜索关键词（匹配问题或回答）
+    if search:
+        keyword = f"%{search}%"
+        query = query.filter(
+            models.ConversationLog.query.ilike(keyword) |
+            models.ConversationLog.answer.ilike(keyword)
+        )
+
+    # 按用户名筛选（仅管理员）
+    if user_id and is_admin:
+        try:
+            uid = int(user_id)
+            query = query.filter(models.ConversationLog.user_id == uid)
+        except ValueError:
+            # 按用户名查找
+            user = db.query(models.User).filter(models.User.username == user_id).first()
+            if user:
+                query = query.filter(models.ConversationLog.user_id == user.id)
+
+    # 日期范围
+    if start_date:
+        query = query.filter(models.ConversationLog.created_at >= start_date)
+    if end_date:
+        query = query.filter(models.ConversationLog.created_at <= end_date + " 23:59:59")
+
+    # 排序和分页
+    logs = query.order_by(models.ConversationLog.created_at.desc()).offset(skip).limit(limit).all()
+
+    return [
+        {
+            "id": log.id,
+            "conversation_id": log.conversation_id,
+            "user_id": log.user_id,
+            "query": log.query,
+            "answer": log.answer,
+            "sources": log.sources or [],
+            "knowledge_base_ids": log.knowledge_base_ids or [],
+            "created_at": log.created_at.isoformat() if log.created_at else "",
+        }
+        for log in logs
+    ]
+
+
 @router.delete("/history/{conversation_id}")
 async def delete_conversation_history(
     conversation_id: str,

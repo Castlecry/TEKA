@@ -77,11 +77,13 @@
             <span class="answer-text">{{ scope.row.answer }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="source" label="来源知识库" min-width="140">
+        <el-table-column label="来源知识库" min-width="140">
           <template #default="scope">
-            <el-tag v-if="scope.row.source" size="small" type="info" effect="plain" round>
-              {{ scope.row.source }}
-            </el-tag>
+            <template v-if="scope.row.sources && scope.row.sources.length > 0">
+              <el-tag v-for="s in scope.row.sources.slice(0,2)" :key="s" size="small" type="info" effect="plain" round>
+                {{ typeof s === 'string' ? s : s.source || s }}
+              </el-tag>
+            </template>
             <span v-else class="no-data">-</span>
           </template>
         </el-table-column>
@@ -139,7 +141,9 @@
           </div>
           <div class="meta-item">
             <span class="meta-label">来源</span>
-            <span class="meta-value">{{ selectedLog.source || '-' }}</span>
+            <span class="meta-value">
+              {{ (selectedLog.sources && selectedLog.sources.length) ? selectedLog.sources.join(', ') : '-' }}
+            </span>
           </div>
         </div>
 
@@ -223,8 +227,8 @@ const loadLogs = async () => {
       params.start_date = dateRange.value[0]
       params.end_date = dateRange.value[1]
     }
-    const data = await request.get('/chat/sessions', { params })
-    logs.value = data
+    const data = await request.get('/chat/logs', { params })
+    logs.value = Array.isArray(data) ? data : []
   } catch (error) {
     ElMessage.error('加载对话日志失败')
   } finally {

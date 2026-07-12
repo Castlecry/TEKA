@@ -10,7 +10,8 @@
       "Bash(python -c ' *)",
       "Bash(git commit -m 'Fix: PostgreSQL ENUM name, OpenSearch 2560-dim embedding, Windows GBK encoding *)",
       "Bash(git commit -m 'feat: Redis缓存增强 + Agent/LangGraph完善 + Bug修复 + Sprint重写 *)",
-      "Bash(curl -s http://localhost:8888/health)"
+      "Bash(curl -s http://localhost:8888/health)",
+      "Bash(git commit -m 'feat: 文档自动处理管线 + 预览 + 重新生成向量 *)"
     ]
   }
 }
