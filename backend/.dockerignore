@@ -1,0 +1,10 @@
+.venv/
+.git/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+conversations.db
+uploads/

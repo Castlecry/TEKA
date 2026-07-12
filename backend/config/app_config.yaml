@@ -1,0 +1,40 @@
+app:
+  name: "企业知识助手"
+  version: "1.0.0"
+  debug: true
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+database:
+  url: "sqlite+aiosqlite:///./data/app.db"
+
+chroma:
+  persist_directory: "./data/vectordb"
+  collection_prefix: "kb_"
+
+document:
+  upload_dir: "./data/uploads"
+  max_upload_size_mb: 50
+  allowed_extensions:
+    - ".txt"
+    - ".pdf"
+    - ".docx"
+    - ".md"
+  default_chunk_size: 500
+  default_chunk_overlap: 50
+
+retrieval:
+  default_top_k: 5
+  default_similarity_threshold: 0.5
+  timeout_seconds: 30
+
+chat:
+  max_context_rounds: 10
+  max_answer_length: 2000
+  timeout_seconds: 60
+
+llm:
+  temperature: 0.7
+  max_tokens: 2048
