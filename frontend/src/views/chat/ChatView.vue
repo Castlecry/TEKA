@@ -171,18 +171,35 @@
 
       <!-- 输入区域 -->
       <div class="chat-input-wrapper">
+        <!-- 已选文件标签 -->
+        <div v-if="selectedFile" class="selected-file-tag">
+          <el-icon :size="14"><Document /></el-icon>
+          <span>{{ selectedFile.name }}</span>
+          <el-icon :size="14" class="remove-file" @click="selectedFile = null"><Close /></el-icon>
+        </div>
         <div class="chat-input">
+          <!-- 文件上传按钮 -->
+          <label class="upload-file-btn" :class="{ disabled: loading }">
+            <el-icon :size="18"><Plus /></el-icon>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.png,.jpg,.jpeg"
+              hidden
+              @change="onFileSelected"
+              :disabled="loading"
+            />
+          </label>
           <input
             v-model="inputMessage"
-            placeholder="输入你的问题..."
+            :placeholder="selectedFile ? '输入你的问题（可选）...' : '输入你的问题...'"
             class="input-field"
             @keyup.enter="sendMessage"
             :disabled="loading"
           />
           <button
             class="send-btn"
-            :class="{ active: inputMessage.trim() && !loading }"
-            :disabled="!inputMessage.trim() || loading"
+            :class="{ active: (inputMessage.trim() || selectedFile) && !loading }"
+            :disabled="(!inputMessage.trim() && !selectedFile) || loading"
             @click="sendMessage"
           >
             <el-icon :size="18"><Promotion /></el-icon>
@@ -386,15 +403,30 @@ const connectWebSocket = () => {
   }
 }
 
+const selectedFile = ref(null)
+
+const onFileSelected = (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    selectedFile.value = file
+  }
+}
+
 const sendMessage = async () => {
-  if (!inputMessage.value.trim() || loading.value) return
+  const hasMessage = inputMessage.value.trim()
+  const hasFile = selectedFile.value
 
-  const message = inputMessage.value.trim()
+  if ((!hasMessage && !hasFile) || loading.value) return
+
+  const message = inputMessage.value.trim() || (hasFile ? '请分析这个文件的内容' : '')
+  const file = selectedFile.value
   inputMessage.value = ''
+  selectedFile.value = null
 
+  const displayContent = file ? `[文件: ${file.name}] ${message}` : message
   messages.value.push({
     role: 'user',
-    content: message,
+    content: displayContent,
     created_at: new Date().toLocaleTimeString(),
   })
 
@@ -402,41 +434,94 @@ const sendMessage = async () => {
   streamingMessage.value = ''
   scrollToBottom()
 
-  // 优先使用 WebSocket 流式，回退到 HTTP POST
-  if (ws.value && ws.value.readyState === WebSocket.OPEN) {
-    ws.value.send(JSON.stringify({
-      message: message,
-      use_web: useWeb.value,
-      mode: chatMode.value,
-      provider: modelProvider.value,
-    }))
-  } else {
-    // HTTP POST 回退（非流式）
-    try {
-      const res = await request.post('/chat/message', {
-        message: message,
-        conversation_id: currentSessionId.value,
-        use_web: useWeb.value,
-        mode: chatMode.value,
-        provider: modelProvider.value,
+  try {
+    if (file) {
+      // 文件 + 问题：使用 upload-and-ask
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('message', message)
+      if (currentSessionId.value) formData.append('conversation_id', currentSessionId.value)
+
+      const res = await request.post('/chat/upload-and-ask', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
       messages.value.push({
         role: 'assistant',
         content: res.answer || '无响应',
         created_at: new Date().toLocaleTimeString(),
       })
-      // 刷新会话列表
-      loadSessions()
-    } catch (e) {
-      console.error('HTTP 请求失败', e)
-      messages.value.push({
-        role: 'assistant',
-        content: '请求失败，请检查后端服务是否运行',
-        created_at: new Date().toLocaleTimeString(),
+      if (res.conversation_id) currentSessionId.value = res.conversation_id
+    } else {
+      // 纯文本：使用 HTTP SSE 流式
+      const token = localStorage.getItem('token')
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: message,
+          conversation_id: currentSessionId.value,
+          use_web: useWeb.value,
+          mode: chatMode.value,
+          provider: modelProvider.value,
+        }),
       })
-    } finally {
-      loading.value = false
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: '请求失败' }))
+        throw new Error(err.detail || `HTTP ${response.status}`)
+      }
+
+      // 读取 SSE 流
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullAnswer = ''
+
+      // 创建 assistant 消息占位
+      const assistantMsg = { role: 'assistant', content: '', created_at: new Date().toLocaleTimeString() }
+      messages.value.push(assistantMsg)
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.type === 'chunk' && parsed.content) {
+                fullAnswer += parsed.content
+                assistantMsg.content = fullAnswer
+                scrollToBottom()
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      if (!fullAnswer) {
+        assistantMsg.content = '(空响应)'
+      }
     }
+
+    loadSessions()
+  } catch (e) {
+    console.error('发送失败', e)
+    messages.value.push({
+      role: 'assistant',
+      content: `请求失败: ${e.message || '请检查后端服务'}`,
+      created_at: new Date().toLocaleTimeString(),
+    })
+  } finally {
+    loading.value = false
   }
 }
 
@@ -1090,6 +1175,49 @@ onUnmounted(() => {
 .chat-input:focus-within {
   border-color: var(--primary-light);
   box-shadow: 0 4px 16px rgba(79, 110, 247, 0.12);
+}
+
+/* 文件上传按钮 */
+.upload-file-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gray-500);
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.upload-file-btn:hover {
+  background: var(--gray-100);
+  color: var(--primary);
+}
+.upload-file-btn.disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* 已选文件标签 */
+.selected-file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-light);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--primary);
+}
+.selected-file-tag .remove-file {
+  cursor: pointer;
+  color: var(--gray-400);
+}
+.selected-file-tag .remove-file:hover {
+  color: var(--danger);
 }
 
 .input-field {

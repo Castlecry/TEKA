@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import requests
 from config import MINERU_HOST, SUPPORTED_EXTENSIONS
 
@@ -39,7 +40,6 @@ def parse_with_mineru(file_path: str) -> str:
     url = f"{MINERU_HOST}/file_parse"
 
     with open(file_path, "rb") as f:
-        # 注意：参数名是 files（复数），不是 file
         files = {"files": (os.path.basename(file_path), f, mime)}
         data = {
             "parse_method": "auto",
@@ -82,13 +82,23 @@ def parse_local(file_path: str) -> str:
     raise ValueError(f"无法本地解析: {ext}")
 
 
+def _extract_text_from_binary(file_path: str) -> str:
+    """从二进制文件中提取可读文本（通用兜底）"""
+    with open(file_path, "rb") as f:
+        raw = f.read()
+    text = raw.decode("utf-8", errors="ignore")
+    cleaned = re.sub(r'[^\x20-\x7e一-鿿　-〿＀-￯\n\r\t]', ' ', text)
+    cleaned = re.sub(r'\s{3,}', '\n\n', cleaned)
+    return cleaned.strip()
+
+
 def parse_document(file_path: str) -> str:
     """
     解析文档。
     - md/txt 直接读取
     - 图片文件使用 OCR 识别
     - 其他格式（PDF/Word/PPT/Excel等）通过 MinerU API 统一转 MD
-    - MinerU 不可用时，PDF 用 PyPDF2 兜底
+    - MinerU 不可用时：PDF→PyPDF2, DOCX→python-docx, 其他→提取可读文本
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
@@ -99,7 +109,7 @@ def parse_document(file_path: str) -> str:
         raise ValueError(f"不支持的文件格式: {ext}，支持: {sorted(SUPPORTED_EXTENSIONS)}")
 
     # 纯文本类直接读取
-    if ext in (".md", ".txt"):
+    if ext in (".md", ".txt", ".html", ".htm"):
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
 
@@ -113,6 +123,10 @@ def parse_document(file_path: str) -> str:
             return result
         except Exception as e:
             print(f"[OCR] 图片解析失败: {e}")
+            # OCR 失败，尝试通用文本提取
+            fallback = _extract_text_from_binary(file_path)
+            if fallback:
+                return fallback
             raise RuntimeError(f"图片解析失败: {e}")
 
     # 其他格式优先走 MinerU API
@@ -124,7 +138,9 @@ def parse_document(file_path: str) -> str:
     except Exception as e:
         print(f"[MinerU] 解析失败: {e}")
 
-    # PDF 兜底
+    # ---- 兜底策略 ----
+
+    # PDF 兜底：PyPDF2
     if ext == ".pdf":
         try:
             from PyPDF2 import PdfReader
@@ -135,12 +151,32 @@ def parse_document(file_path: str) -> str:
                 if text:
                     texts.append(text)
             result = "\n\n".join(texts)
-            print(f"[PyPDF2] 兜底解析成功，长度: {len(result)}")
-            return result
+            if result.strip():
+                print(f"[PyPDF2] 兜底解析成功，长度: {len(result)}")
+                return result
         except Exception as e2:
-            raise RuntimeError(f"MinerU 和 PyPDF2 均失败: {e2}")
+            print(f"[PyPDF2] 兜底失败: {e2}")
 
-    raise RuntimeError(f"MinerU 不可用，无法解析 {ext} 格式文件")
+    # DOCX/DOC 兜底：python-docx
+    if ext in (".doc", ".docx"):
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            texts = [p.text for p in doc.paragraphs if p.text.strip()]
+            result = "\n\n".join(texts)
+            if result.strip():
+                print(f"[python-docx] 兜底解析成功，长度: {len(result)}")
+                return result
+        except Exception as e2:
+            print(f"[python-docx] 兜底失败: {e2}")
+
+    # 通用兜底：从二进制提取可读文本
+    fallback = _extract_text_from_binary(file_path)
+    if len(fallback) > 50:
+        print(f"[RawText] 兜底解析成功，长度: {len(fallback)}")
+        return fallback
+
+    raise RuntimeError(f"所有解析方式均失败，无法解析 {ext} 格式文件")
 
 
 def scan_knowledge_base(kb_dir: str) -> list[str]:

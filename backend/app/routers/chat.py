@@ -5,7 +5,9 @@ import uuid
 import asyncio
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -148,6 +150,136 @@ async def send_message(
     db.commit()
 
     return {"answer": response, "sources": sources, "conversation_id": conversation_id}
+
+
+@router.post("/stream")
+async def send_message_stream(
+    message: schemas.ChatMessage,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """流式聊天（HTTP SSE），替代 WebSocket 提供稳定的流式响应"""
+    allowed, remaining = _redis_cache.check_rate_limit(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+
+    _redis_cache.track_question(message.message)
+    conversation_id = message.conversation_id or str(uuid.uuid4())
+    provider = message.provider or "api"
+
+    def generate():
+        chunks = []
+
+        def on_token(token: str):
+            chunks.append(token)
+
+        # 执行 RAG/Agent/LangGraph
+        if message.mode == "agent" and provider != "local":
+            answer = agent_with_tools(query=message.message, session_id=conversation_id)
+            _conv_store.save_message(conversation_id, "user", message.message)
+            _conv_store.save_message(conversation_id, "assistant", answer)
+            # 非流式回退
+            yield f"data: {json.dumps({'type': 'chunk', 'content': answer})}\n\n"
+        elif message.mode == "langgraph" and provider != "local":
+            answer = run_agent(query=message.message, session_id=conversation_id)
+            _conv_store.save_message(conversation_id, "user", message.message)
+            _conv_store.save_message(conversation_id, "assistant", answer)
+            yield f"data: {json.dumps({'type': 'chunk', 'content': answer})}\n\n"
+        else:
+            _rag_chain.rag_query(
+                query=message.message,
+                session_id=conversation_id,
+                use_web=message.use_web or False,
+                use_rerank=True,
+                use_rewrite=True,
+                stream_callback=on_token,
+                provider=provider,
+            )
+            for token in chunks:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n"
+
+        yield "data: [DONE]\n\n"
+
+        # 保存到 PostgreSQL
+        full_answer = "".join(chunks) if chunks else ""
+        db_log = models.ConversationLog(
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+            query=message.message,
+            answer=full_answer,
+            sources=[],
+            knowledge_base_ids=message.knowledge_base_ids or [],
+        )
+        db.add(db_log)
+        db.commit()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/upload-and-ask")
+async def upload_and_ask(
+    file: UploadFile = File(...),
+    message: str = "请分析这个文件的内容",
+    conversation_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """上传文件并提问——通过 MinerU 解析后结合 RAG 回答"""
+    import tempfile
+    from document_parser import parse_document
+
+    # 保存上传文件到临时目录
+    suffix = os.path.splitext(file.filename or "upload")[1] or ".txt"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        # 解析文件内容
+        parsed_content = parse_document(tmp_path)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
+
+    os.unlink(tmp_path)
+
+    # 构建查询：将文件内容作为上下文，用户消息作为问题
+    full_query = f"文件内容：\n{parsed_content[:4000]}\n\n用户问题：{message}"
+
+    conv_id = conversation_id or str(uuid.uuid4())
+
+    response = _rag_chain.rag_query(
+        query=full_query,
+        session_id=conv_id,
+        use_web=False,
+        use_rerank=True,
+        use_rewrite=False,
+    )
+
+    db_log = models.ConversationLog(
+        conversation_id=conv_id,
+        user_id=current_user.id,
+        query=f"[文件: {file.filename}] {message}",
+        answer=response,
+        sources=[],
+        knowledge_base_ids=[],
+    )
+    db.add(db_log)
+    db.commit()
+
+    return {
+        "answer": response,
+        "conversation_id": conv_id,
+        "filename": file.filename,
+    }
 
 
 @router.websocket("/ws/{conversation_id}")

@@ -2,7 +2,7 @@ import os
 import sys
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -45,10 +45,43 @@ async def get_document(
     return doc
 
 
+def _process_uploaded_document(doc_id: int, file_path: str, kb_id: int, filename: str):
+    """后台处理上传的文档：解析 → 切片 → 向量化 → 存储"""
+    from app.database import SessionLocal
+    from document_service import process_document
+
+    db = SessionLocal()
+    try:
+        doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
+        if not doc:
+            return
+
+        doc.status = "processing"
+        db.commit()
+
+        result = process_document(file_path, kb_id=kb_id, source=filename)
+
+        if result["success"]:
+            doc.status = "completed"
+            doc.chunk_count = result["chunk_count"]
+        else:
+            doc.status = "failed"
+            print(f"[Upload] 文档处理失败: {result.get('error')}")
+    except Exception as e:
+        doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
+        if doc:
+            doc.status = "failed"
+        print(f"[Upload] 文档处理异常: {e}")
+    finally:
+        db.commit()
+        db.close()
+
+
 @router.post("/upload", response_model=schemas.DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     knowledge_base_id: int,
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -70,7 +103,7 @@ async def upload_document(
 
     file_size = os.path.getsize(file_path)
 
-    # 创建文档记录（状态：processing）
+    # 创建文档记录（状态：pending，后台处理）
     db_doc = models.Document(
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
@@ -78,29 +111,21 @@ async def upload_document(
         file_type=file_ext[1:],
         size=file_size,
         uploaded_by=current_user.id,
-        status="processing",
+        status="pending",
     )
     db.add(db_doc)
     db.commit()
     db.refresh(db_doc)
 
-    # 自动触发文档处理管线：解析 → 切片 → 向量化 → 存储
-    try:
-        from document_service import process_document
-        result = process_document(file_path, kb_id=knowledge_base_id, source=file.filename)
+    # 后台异步处理文档
+    background_tasks.add_task(
+        _process_uploaded_document,
+        doc_id=db_doc.id,
+        file_path=file_path,
+        kb_id=knowledge_base_id,
+        filename=file.filename,
+    )
 
-        if result["success"]:
-            db_doc.status = "completed"
-            db_doc.chunk_count = result["chunk_count"]
-        else:
-            db_doc.status = "failed"
-            print(f"[Upload] 文档处理失败: {result.get('error')}")
-    except Exception as e:
-        db_doc.status = "failed"
-        print(f"[Upload] 文档处理异常: {e}")
-
-    db.commit()
-    db.refresh(db_doc)
     return db_doc
 
 

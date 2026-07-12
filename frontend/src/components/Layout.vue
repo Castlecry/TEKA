@@ -86,9 +86,7 @@
       </header>
 
       <div class="content-area">
-        <router-view v-slot="{ Component, route }">
-          <component :is="Component" :key="route.fullPath" />
-        </router-view>
+        <router-view :key="$route.fullPath" />
       </div>
     </main>
   </div>
