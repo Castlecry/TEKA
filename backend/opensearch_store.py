@@ -50,12 +50,28 @@ INDEX_SETTINGS = {
 
 
 def ensure_index():
-    """确保索引存在"""
+    """确保索引存在，且 embedding 维度与当前模型匹配"""
     if not _client.indices.exists(index=OPENSEARCH_INDEX):
         _client.indices.create(index=OPENSEARCH_INDEX, body=INDEX_SETTINGS)
-        print(f"[OpenSearch] 创建索引: {OPENSEARCH_INDEX}")
-    else:
-        print(f"[OpenSearch] 索引已存在: {OPENSEARCH_INDEX}")
+        print(f"[OpenSearch] 创建索引: {OPENSEARCH_INDEX} (dimension={EMBED_DIMENSION})")
+        return
+
+    try:
+        mapping = _client.indices.get_mapping(index=OPENSEARCH_INDEX)
+        current_dim = (
+            mapping[OPENSEARCH_INDEX]["mappings"]["properties"]
+            .get("embedding", {}).get("dimension")
+        )
+        if current_dim and current_dim != EMBED_DIMENSION:
+            print(
+                f"[OpenSearch] 警告: 索引维度不匹配 (现有={current_dim}, 当前模型={EMBED_DIMENSION})，"
+                f"自动删除并重建索引 {OPENSEARCH_INDEX}"
+            )
+            _client.indices.delete(index=OPENSEARCH_INDEX)
+            _client.indices.create(index=OPENSEARCH_INDEX, body=INDEX_SETTINGS)
+            print(f"[OpenSearch] 重建索引完成 (dimension={EMBED_DIMENSION})")
+    except Exception as e:
+        print(f"[OpenSearch] 检查索引维度时出错: {e}")
 
 
 def add_documents(chunks: list[str], source: str = "unknown"):
