@@ -38,6 +38,7 @@ class User(Base):
     department = Column(String(50))
     role_id = Column(Integer, ForeignKey("roles.id"))
     status = Column(Boolean, default=True)
+    avatar = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

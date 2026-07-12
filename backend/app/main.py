@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine
 from app import models
-from app.routers import auth, users, knowledge_bases, documents, chat
+from app.routers import auth, users, knowledge_bases, documents, chat, profile
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -22,6 +22,7 @@ app.include_router(users.router)
 app.include_router(knowledge_bases.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(profile.router)
 
 
 @app.get("/")

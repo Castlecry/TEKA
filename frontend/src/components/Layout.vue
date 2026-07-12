@@ -78,7 +78,8 @@
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                  <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                  <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -89,7 +90,7 @@
       <div class="content-area">
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="$route.path" />
           </transition>
         </router-view>
       </div>
@@ -156,6 +157,8 @@ const handleCommand = (command) => {
   if (command === 'logout') {
     userStore.logout()
     router.push('/login')
+  } else if (command === 'profile') {
+    router.push('/profile')
   }
 }
 </script>
