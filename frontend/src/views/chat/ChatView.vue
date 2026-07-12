@@ -259,14 +259,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted } from 'vue'
+import { ref, reactive, nextTick, onMounted, watch } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
   Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document
 } from '@element-plus/icons-vue'
 import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
+import { useUserStore } from '@/stores/user'
 
+const userStore = useUserStore()
 const currentSessionId = ref('default')
 const messages = ref([])
 const inputMessage = ref('')
@@ -278,6 +280,7 @@ const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
+let lastUserId = userStore.user?.id || null
 
 // 模式配置
 const chatModes = [
@@ -472,10 +475,29 @@ const scrollToBottom = () => {
   })
 }
 
+const resetChatState = () => {
+  currentSessionId.value = 'default'
+  messages.value = []
+  sessions.value = []
+  inputMessage.value = ''
+  selectedFile.value = null
+  loading.value = false
+}
+
 onMounted(() => {
+  lastUserId = userStore.user?.id || null
   loadSessions()
-  loadHistory(currentSessionId.value)
 })
+
+watch(
+  () => userStore.user?.id,
+  (newId) => {
+    if (newId && lastUserId && newId !== lastUserId) {
+      resetChatState()
+    }
+    lastUserId = newId
+  }
+)
 </script>
 
 <style scoped>

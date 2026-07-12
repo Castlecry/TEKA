@@ -44,8 +44,9 @@ async def send_message(
     _redis_cache.track_question(message.message)
 
     conversation_id = message.conversation_id or str(uuid.uuid4())
+    scoped_id = f"{current_user.id}:{conversation_id}"
 
-    history = _conv_store.get_history(conversation_id)
+    history = _conv_store.get_history(scoped_id)
 
     provider = message.provider or "api"
 
@@ -56,7 +57,7 @@ async def send_message(
             # 本地模型不支持 Function Calling，回退到 RAG 模式
             response = _rag_chain.rag_query(
                 query=message.message,
-                session_id=conversation_id,
+                session_id=scoped_id,
                 use_web=message.use_web or False,
                 use_rerank=True,
                 use_rewrite=True,
@@ -65,16 +66,16 @@ async def send_message(
         else:
             response = agent_with_tools(
                 query=message.message,
-                session_id=conversation_id
+                session_id=scoped_id
             )
-        _conv_store.save_message(conversation_id, "user", message.message)
-        _conv_store.save_message(conversation_id, "assistant", response)
+        _conv_store.save_message(scoped_id, "user", message.message)
+        _conv_store.save_message(scoped_id, "assistant", response)
     elif message.mode == "langgraph":
         # LangGraph 模式（仅 API 模式支持）
         if provider == "local":
             response = _rag_chain.rag_query(
                 query=message.message,
-                session_id=conversation_id,
+                session_id=scoped_id,
                 use_web=message.use_web or False,
                 use_rerank=True,
                 use_rewrite=True,
@@ -83,15 +84,15 @@ async def send_message(
         else:
             response = run_agent(
                 query=message.message,
-                session_id=conversation_id
+                session_id=scoped_id
             )
-        _conv_store.save_message(conversation_id, "user", message.message)
-        _conv_store.save_message(conversation_id, "assistant", response)
+        _conv_store.save_message(scoped_id, "user", message.message)
+        _conv_store.save_message(scoped_id, "assistant", response)
     else:
         # 默认RAG模式（rag_chain 内部自动保存对话到 Redis）
         response = _rag_chain.rag_query(
             query=message.message,
-            session_id=conversation_id,
+            session_id=scoped_id,
             use_web=message.use_web or False,
             use_rerank=True,
             use_rewrite=True,
@@ -127,6 +128,7 @@ async def send_message_stream(
 
     _redis_cache.track_question(message.message)
     conversation_id = message.conversation_id or str(uuid.uuid4())
+    scoped_id = f"{current_user.id}:{conversation_id}"
     provider = message.provider or "api"
 
     _user_id = current_user.id
@@ -141,22 +143,22 @@ async def send_message_stream(
 
         try:
             if message.mode == "agent" and provider != "local":
-                answer = agent_with_tools(query=message.message, session_id=conversation_id)
-                _conv_store.save_message(conversation_id, "user", message.message)
-                _conv_store.save_message(conversation_id, "assistant", answer)
+                answer = agent_with_tools(query=message.message, session_id=scoped_id)
+                _conv_store.save_message(scoped_id, "user", message.message)
+                _conv_store.save_message(scoped_id, "assistant", answer)
                 _full_answer.append(answer)
                 _queue.put_nowait(answer)
             elif message.mode == "langgraph" and provider != "local":
-                answer = run_agent(query=message.message, session_id=conversation_id)
-                _conv_store.save_message(conversation_id, "user", message.message)
-                _conv_store.save_message(conversation_id, "assistant", answer)
+                answer = run_agent(query=message.message, session_id=scoped_id)
+                _conv_store.save_message(scoped_id, "user", message.message)
+                _conv_store.save_message(scoped_id, "assistant", answer)
                 _full_answer.append(answer)
                 _queue.put_nowait(answer)
             else:
                 await asyncio.to_thread(
                     _rag_chain.rag_query,
                     query=message.message,
-                    session_id=conversation_id,
+                    session_id=scoped_id,
                     use_web=message.use_web or False,
                     use_rerank=True,
                     use_rewrite=True,
@@ -254,10 +256,11 @@ async def upload_and_ask(
     full_query = f"文件内容：\n{parsed_content[:4000]}\n\n用户问题：{message}"
 
     conv_id = conversation_id or str(uuid.uuid4())
+    scoped_id = f"{current_user.id}:{conv_id}"
 
     response = _rag_chain.rag_query(
         query=full_query,
-        session_id=conv_id,
+        session_id=scoped_id,
         use_web=False,
         use_rerank=True,
         use_rewrite=False,
@@ -287,7 +290,9 @@ async def get_conversation_history(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    history = _conv_store.get_history(conversation_id)
+    is_admin = current_user.role and "all" in (current_user.role.permissions or [])
+    scoped_id = f"{current_user.id}:{conversation_id}" if not is_admin else conversation_id
+    history = _conv_store.get_history(scoped_id)
     return {"conversation_id": conversation_id, "history": history}
 
 
@@ -385,7 +390,8 @@ async def delete_conversation_history(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _conv_store.clear_session(conversation_id)
+    scoped_id = f"{current_user.id}:{conversation_id}"
+    _conv_store.clear_session(scoped_id)
 
     db.query(models.ConversationLog).filter(
         models.ConversationLog.conversation_id == conversation_id,
@@ -394,3 +400,50 @@ async def delete_conversation_history(
     db.commit()
 
     return {"message": "Conversation history deleted"}
+
+
+def _require_admin(current_user: models.User):
+    if not current_user.role or "all" not in (current_user.role.permissions or []):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+
+@router.delete("/logs/{log_id}")
+async def delete_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """删除单条对话日志（仅管理员）"""
+    _require_admin(current_user)
+    log = db.query(models.ConversationLog).filter(models.ConversationLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="日志不存在")
+
+    user_scoped_id = f"{log.user_id}:{log.conversation_id}"
+    _conv_store.clear_session(user_scoped_id)
+
+    db.delete(log)
+    db.commit()
+    return {"message": "日志已删除", "log_id": log_id}
+
+
+@router.delete("/logs")
+async def delete_logs_batch(
+    log_ids: list[int],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """批量删除对话日志（仅管理员）"""
+    _require_admin(current_user)
+    if not log_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的日志")
+
+    logs = db.query(models.ConversationLog).filter(models.ConversationLog.id.in_(log_ids)).all()
+    deleted_count = 0
+    for log in logs:
+        user_scoped_id = f"{log.user_id}:{log.conversation_id}"
+        _conv_store.clear_session(user_scoped_id)
+        db.delete(log)
+        deleted_count += 1
+    db.commit()
+    return {"message": f"已删除 {deleted_count} 条日志", "deleted_count": deleted_count}

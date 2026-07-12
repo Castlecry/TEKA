@@ -207,7 +207,8 @@ const handleLogin = async () => {
   loading.value = true
   try {
     await userStore.login(form.username, form.password)
-    router.push('/')
+    // 强制刷新页面以重置所有页面状态（包括 chat 历史）
+    window.location.href = '/'
   } catch (error) {
     const msg = error?.detail || '登录失败，请检查用户名和密码'
     ElMessage.error(msg)

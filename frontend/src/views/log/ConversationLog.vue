@@ -34,12 +34,25 @@
             class="date-picker"
             prefix-icon="Calendar"
           />
-          <el-select v-model="selectedUser" placeholder="选择用户" class="user-select">
+          <el-select v-model="selectedUser" placeholder="选择用户" class="user-select" v-if="isAdmin">
             <el-option label="全部用户" value="" />
-            <el-option label="admin" value="admin" />
-            <el-option label="zhangsan" value="zhangsan" />
+            <el-option
+              v-for="u in userList"
+              :key="u.id"
+              :label="u.username"
+              :value="u.id"
+            />
           </el-select>
           <el-button type="primary" icon="Search" @click="loadLogs" class="search-btn">搜索</el-button>
+          <el-button
+            v-if="isAdmin && selectedLogIds.length > 0"
+            type="danger"
+            icon="Delete"
+            @click="batchDelete"
+            class="batch-delete-btn"
+          >
+            批量删除 ({{ selectedLogIds.length }})
+          </el-button>
         </div>
       </el-card>
     </div>
@@ -51,7 +64,9 @@
         :header-cell-style="{ background: 'var(--gray-50)', color: 'var(--gray-700)', fontWeight: 600 }"
         class="log-table"
         v-loading="loading"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column v-if="isAdmin" type="selection" width="50" />
         <el-table-column prop="conversation_id" label="会话ID" min-width="180">
           <template #default="scope">
             <span class="id-text">{{ scope.row.conversation_id }}</span>
@@ -92,10 +107,19 @@
             <span class="time-text">{{ formatDate(scope.row.created_at) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="120" fixed="right">
+        <el-table-column label="操作" min-width="160" fixed="right">
           <template #default="scope">
             <el-button size="small" type="primary" link @click="viewDetail(scope.row)">
               <el-icon><View /></el-icon> 详情
+            </el-button>
+            <el-button
+              v-if="isAdmin"
+              size="small"
+              type="danger"
+              link
+              @click="deleteLog(scope.row)"
+            >
+              <el-icon><Delete /></el-icon> 删除
             </el-button>
           </template>
         </el-table-column>
@@ -175,10 +199,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, onMounted, computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import request from '@/utils/request'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.isAdmin)
 
 const searchText = ref('')
 const dateRange = ref([])
@@ -186,6 +214,8 @@ const selectedUser = ref('')
 const showDetailDialog = ref(false)
 const selectedLog = ref(null)
 const loading = ref(false)
+const selectedLogIds = ref([])
+const userList = ref([])
 
 const logs = ref([])
 
@@ -238,6 +268,16 @@ const loadLogs = async () => {
   }
 }
 
+const loadUsers = async () => {
+  if (!isAdmin.value) return
+  try {
+    const data = await request.get('/users/')
+    userList.value = Array.isArray(data) ? data : []
+  } catch (error) {
+    console.error('加载用户列表失败', error)
+  }
+}
+
 const viewDetail = async (row) => {
   try {
     const data = await request.get(`/chat/history/${row.conversation_id}`)
@@ -248,8 +288,48 @@ const viewDetail = async (row) => {
   }
 }
 
+const handleSelectionChange = (rows) => {
+  selectedLogIds.value = rows.map(r => r.id)
+}
+
+const deleteLog = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除这条对话日志吗？此操作不可恢复。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    await request.delete(`/chat/logs/${row.id}`)
+    ElMessage.success('日志已删除')
+    loadLogs()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error?.detail || '删除失败')
+    }
+  }
+}
+
+const batchDelete = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedLogIds.value.length} 条日志吗？此操作不可恢复。`,
+      '批量删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    await request.delete('/chat/logs', { data: selectedLogIds.value })
+    ElMessage.success('批量删除成功')
+    selectedLogIds.value = []
+    loadLogs()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error?.detail || '批量删除失败')
+    }
+  }
+}
+
 onMounted(() => {
   loadLogs()
+  loadUsers()
 })
 </script>
 
