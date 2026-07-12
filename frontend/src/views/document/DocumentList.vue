@@ -177,6 +177,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Document, Upload, Refresh, View, Delete, RefreshRight, Loading, Search
+} from '@element-plus/icons-vue'
 import request from '@/utils/request'
 
 const formatFileSize = (bytes) => {
@@ -228,12 +231,44 @@ const loadDocuments = async () => {
   }
 }
 
-const previewDocument = (row) => {
-  ElMessage.info('预览功能开发中')
+const showPreviewDialog = ref(false)
+const previewLoading = ref(false)
+const previewContent = ref('')
+const previewFilename = ref('')
+const previewStatus = ref('')
+
+const previewDocument = async (row) => {
+  showPreviewDialog.value = true
+  previewLoading.value = true
+  previewContent.value = ''
+  previewFilename.value = row.filename
+  previewStatus.value = row.status
+
+  try {
+    const data = await request.get(`/documents/${row.id}/preview`)
+    previewContent.value = data.content || '(空内容)'
+  } catch (error) {
+    previewContent.value = '预览加载失败: ' + (error?.detail || error?.message || '未知错误')
+  } finally {
+    previewLoading.value = false
+  }
 }
 
-const regenerateVector = (row) => {
-  ElMessage.success('向量重新生成中')
+const regenerateVector = async (row) => {
+  row._regenerating = true
+  try {
+    const res = await request.post(`/documents/${row.id}/regenerate`)
+    if (res.status === 'completed') {
+      ElMessage.success(`向量重新生成完成！切片数: ${res.chunk_count}`)
+    } else {
+      ElMessage.error(res.message || '向量生成失败')
+    }
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error('重新生成失败')
+  } finally {
+    row._regenerating = false
+  }
 }
 
 const deleteDocument = async (row) => {

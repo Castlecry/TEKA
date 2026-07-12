@@ -144,12 +144,20 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" align="center" fixed="right">
+            <el-table-column label="操作" width="240" align="center" fixed="right">
               <template #default="scope">
                 <div class="action-btns">
                   <el-button type="primary" link size="small" @click="previewDocument(scope.row)">
                     <el-icon><View /></el-icon>
                     <span>预览</span>
+                  </el-button>
+                  <el-button
+                    type="warning" link size="small"
+                    @click="regenerateDocument(scope.row)"
+                    :loading="scope.row._regenerating"
+                  >
+                    <el-icon><RefreshRight /></el-icon>
+                    <span>重新生成</span>
                   </el-button>
                   <el-button type="danger" link size="small" @click="deleteDocument(scope.row)">
                     <el-icon><Delete /></el-icon>
@@ -228,6 +236,26 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 预览对话框 -->
+    <el-dialog v-model="showPreviewDialog" title="文档预览" width="800px" destroy-on-close>
+      <div v-if="previewLoading" class="preview-loading">
+        <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+        <p>加载预览内容...</p>
+      </div>
+      <div v-else-if="previewContent" class="preview-body">
+        <div class="preview-meta">
+          <span class="preview-filename">{{ previewFilename }}</span>
+          <el-tag :type="previewStatus === 'completed' ? 'success' : 'warning'" size="small" round>
+            {{ previewStatus }}
+          </el-tag>
+        </div>
+        <div class="preview-text">{{ previewContent }}</div>
+      </div>
+      <div v-else class="preview-error">
+        <p>无法加载预览内容</p>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -235,6 +263,11 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Collection, FolderOpened, ArrowLeft, Edit, InfoFilled, Document,
+  OfficeBuilding, Calendar, CircleCheck, Upload, Refresh, View, Delete,
+  RefreshRight, Loading
+} from '@element-plus/icons-vue'
 import request from '@/utils/request'
 
 const route = useRoute()
@@ -304,8 +337,44 @@ const loadDocuments = async () => {
   }
 }
 
-const previewDocument = (row) => {
-  ElMessage.info('预览功能开发中')
+const showPreviewDialog = ref(false)
+const previewLoading = ref(false)
+const previewContent = ref('')
+const previewFilename = ref('')
+const previewStatus = ref('')
+
+const previewDocument = async (row) => {
+  showPreviewDialog.value = true
+  previewLoading.value = true
+  previewContent.value = ''
+  previewFilename.value = row.filename
+  previewStatus.value = row.status
+
+  try {
+    const data = await request.get(`/documents/${row.id}/preview`)
+    previewContent.value = data.content || '(空内容)'
+  } catch (error) {
+    previewContent.value = '预览加载失败: ' + (error?.detail || error?.message || '未知错误')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+const regenerateDocument = async (row) => {
+  row._regenerating = true
+  try {
+    const res = await request.post(`/documents/${row.id}/regenerate`)
+    if (res.status === 'completed') {
+      ElMessage.success(`向量重新生成完成！切片数: ${res.chunk_count}`)
+    } else {
+      ElMessage.error(res.message || '向量生成失败')
+    }
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error('重新生成失败: ' + (error?.detail || error?.message || ''))
+  } finally {
+    row._regenerating = false
+  }
 }
 
 const deleteDocument = async (row) => {
@@ -868,5 +937,51 @@ onMounted(() => {
   padding: 8px 20px;
   border-radius: var(--radius-sm, 6px);
   font-weight: 600;
+}
+
+/* 预览对话框 */
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: var(--gray-500);
+  gap: 16px;
+}
+
+.preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.preview-filename {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--gray-800);
+}
+
+.preview-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--gray-700);
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--gray-50);
+  padding: 20px;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--gray-200);
+}
+
+.preview-error {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--gray-500);
 }
 </style>

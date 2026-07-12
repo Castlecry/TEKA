@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -8,6 +9,11 @@ from app import models, schemas
 from app.config import KNOWLEDGE_BASE_DIR, SUPPORTED_EXTENSIONS
 from app.database import get_db
 from app.routers.auth import get_current_user
+
+# 将 backend 根目录加入 path
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -58,21 +64,85 @@ async def upload_document(
     os.makedirs(kb_dir, exist_ok=True)
 
     file_path = os.path.join(kb_dir, file.filename)
+    content_bytes = await file.read()
     with open(file_path, "wb") as f:
-        f.write(await file.read())
+        f.write(content_bytes)
 
+    file_size = os.path.getsize(file_path)
+
+    # 创建文档记录（状态：processing）
     db_doc = models.Document(
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
         file_path=file_path,
         file_type=file_ext[1:],
-        size=os.path.getsize(file_path),
+        size=file_size,
         uploaded_by=current_user.id,
+        status="processing",
     )
     db.add(db_doc)
     db.commit()
     db.refresh(db_doc)
+
+    # 自动触发文档处理管线：解析 → 切片 → 向量化 → 存储
+    try:
+        from document_service import process_document
+        result = process_document(file_path, kb_id=knowledge_base_id, source=file.filename)
+
+        if result["success"]:
+            db_doc.status = "completed"
+            db_doc.chunk_count = result["chunk_count"]
+        else:
+            db_doc.status = "failed"
+            print(f"[Upload] 文档处理失败: {result.get('error')}")
+    except Exception as e:
+        db_doc.status = "failed"
+        print(f"[Upload] 文档处理异常: {e}")
+
+    db.commit()
+    db.refresh(db_doc)
     return db_doc
+
+
+@router.post("/{doc_id}/regenerate")
+async def regenerate_document_vectors(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """重新生成文档向量（解析 → 切片 → 向量化 → 存储）"""
+    doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not doc.file_path or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    # 更新状态为处理中
+    doc.status = "processing"
+    db.commit()
+
+    try:
+        from document_service import regenerate_for_document
+        result = regenerate_for_document(doc.file_path, source=doc.filename)
+
+        if result["success"]:
+            doc.status = "completed"
+            doc.chunk_count = result["chunk_count"]
+        else:
+            doc.status = "failed"
+    except Exception as e:
+        doc.status = "failed"
+        print(f"[Regenerate] 异常: {e}")
+
+    db.commit()
+    db.refresh(doc)
+
+    return {
+        "message": "向量重新生成完成" if doc.status == "completed" else "向量生成失败",
+        "status": doc.status,
+        "chunk_count": doc.chunk_count,
+    }
 
 
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -98,6 +168,7 @@ async def preview_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """预览文档解析后的内容"""
     doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -106,11 +177,36 @@ async def preview_document(
         raise HTTPException(status_code=404, detail="File not found")
 
     file_ext = os.path.splitext(doc.filename)[1].lower()
+
+    # 纯文本直接返回
     if file_ext in (".txt", ".md"):
         with open(doc.file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        return {"content": content, "file_type": file_ext}
-    elif file_ext in (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"):
-        return {"message": "Image file - OCR text available via parsing pipeline", "file_type": file_ext}
-    else:
-        return {"message": "Preview not supported for this file type", "file_type": file_ext}
+        return {
+            "content": content,
+            "file_type": file_ext,
+            "filename": doc.filename,
+            "chunk_count": doc.chunk_count,
+            "status": doc.status,
+        }
+
+    # 其他格式：尝试用 MinerU 解析后返回
+    try:
+        from document_parser import parse_document
+        content = parse_document(doc.file_path)
+        return {
+            "content": content,
+            "file_type": file_ext,
+            "filename": doc.filename,
+            "chunk_count": doc.chunk_count,
+            "status": doc.status,
+        }
+    except Exception as e:
+        # 如果 MinerU 不可用，返回基本信息
+        return {
+            "content": f"[预览不可用] 文件类型 {file_ext} 需要 MinerU API 进行解析。\n错误: {str(e)}",
+            "file_type": file_ext,
+            "filename": doc.filename,
+            "chunk_count": doc.chunk_count,
+            "status": doc.status,
+        }
