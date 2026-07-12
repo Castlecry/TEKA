@@ -18,14 +18,18 @@
 
       <el-table :data="documents" border>
         <el-table-column prop="filename" label="文件名" />
-        <el-table-column prop="knowledge_base" label="所属知识库" />
-        <el-table-column prop="size" label="大小" />
-        <el-table-column prop="upload_time" label="上传时间" />
+        <el-table-column prop="knowledge_base_id" label="知识库ID" />
+        <el-table-column label="大小">
+          <template #default="scope">
+            {{ formatFileSize(scope.row.size) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="uploaded_at" label="上传时间" />
         <el-table-column prop="chunk_count" label="切片数量" />
         <el-table-column prop="status" label="状态">
           <template #default="scope">
-            <el-tag :type="scope.row.status === 'indexed' ? 'success' : 'warning'">
-              {{ scope.row.status === 'indexed' ? '已索引' : '处理中' }}
+            <el-tag :type="getStatusType(scope.row.status)">
+              {{ getStatusText(scope.row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -66,6 +70,23 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 
+const formatFileSize = (bytes) => {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const getStatusType = (status) => {
+  const types = { pending: 'info', processing: 'warning', completed: 'success', failed: 'danger' }
+  return types[status] || 'info'
+}
+
+const getStatusText = (status) => {
+  const texts = { pending: '待处理', processing: '处理中', completed: '已完成', failed: '失败' }
+  return texts[status] || status
+}
+
 const searchText = ref('')
 const selectedKB = ref('')
 const showUploadDialog = ref(false)
@@ -76,7 +97,6 @@ const documents = ref([])
 const loadDocuments = async () => {
   try {
     const params = {}
-    if (searchText.value) params.search = searchText.value
     if (selectedKB.value) params.knowledge_base_id = selectedKB.value
     const data = await request.get('/documents/', { params })
     documents.value = data
@@ -120,10 +140,10 @@ const uploadFiles = async () => {
     for (const file of fileList.value) {
       const formData = new FormData()
       formData.append('file', file.raw)
-      if (selectedKB.value) {
-        formData.append('knowledge_base_id', selectedKB.value)
-      }
-      await request.post('/documents/upload', formData, {
+      const url = selectedKB.value
+        ? `/documents/upload?knowledge_base_id=${selectedKB.value}`
+        : '/documents/upload'
+      await request.post(url, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
     }

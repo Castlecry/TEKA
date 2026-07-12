@@ -18,6 +18,7 @@ OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "https://localhost:9200")
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
 OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "MyPassword123!")
 OPENSEARCH_INDEX_PREFIX = os.getenv("OPENSEARCH_INDEX_PREFIX", "rag_docs")
+OPENSEARCH_INDEX = OPENSEARCH_INDEX_PREFIX  # 向后兼容别名
 OPENSEARCH_USE_SSL = OPENSEARCH_HOST.startswith("https://")
 
 # Ollama (仅用于嵌入模型)

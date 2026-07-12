@@ -144,8 +144,12 @@ const deleteSession = async (sessionId) => {
 const loadSessions = async () => {
   try {
     const res = await request.get('/chat/sessions')
-    // 后端直接返回数组
-    sessions.value = Array.isArray(res) ? res : []
+    // 后端直接返回数组 [{conversation_id, last_message, last_time, user_id}]
+    sessions.value = (Array.isArray(res) ? res : []).map(s => ({
+      ...s,
+      session_id: s.conversation_id,
+      last_message_at: s.last_time,
+    }))
   } catch (e) {
     console.error('加载会话列表失败', e)
   }
@@ -154,8 +158,8 @@ const loadSessions = async () => {
 const loadHistory = async (sessionId) => {
   try {
     const res = await request.get(`/chat/history/${sessionId}`)
-    // 后端直接返回消息数组
-    messages.value = Array.isArray(res) ? res : []
+    // 后端返回 {conversation_id, history: [...]}
+    messages.value = Array.isArray(res?.history) ? res.history : []
     scrollToBottom()
   } catch (e) {
     console.error('加载对话历史失败', e)

@@ -12,11 +12,10 @@
           <el-descriptions :column="1">
             <el-descriptions-item label="描述">{{ knowledge.description }}</el-descriptions-item>
             <el-descriptions-item label="所属部门">{{ knowledge.department }}</el-descriptions-item>
-            <el-descriptions-item label="负责人">{{ knowledge.owner }}</el-descriptions-item>
             <el-descriptions-item label="创建时间">{{ knowledge.created_at }}</el-descriptions-item>
             <el-descriptions-item label="状态">
-              <el-tag :type="knowledge.status === 'active' ? 'success' : 'danger'">
-                {{ knowledge.status === 'active' ? '活跃' : '停用' }}
+              <el-tag :type="knowledge.status ? 'success' : 'danger'">
+                {{ knowledge.status ? '活跃' : '停用' }}
               </el-tag>
             </el-descriptions-item>
           </el-descriptions>
@@ -32,13 +31,17 @@
 
           <el-table :data="documents" border>
             <el-table-column prop="filename" label="文件名" />
-            <el-table-column prop="size" label="大小" />
-            <el-table-column prop="upload_time" label="上传时间" />
+            <el-table-column label="大小">
+              <template #default="scope">
+                {{ formatFileSize(scope.row.size) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="uploaded_at" label="上传时间" />
             <el-table-column prop="chunk_count" label="切片数量" />
             <el-table-column prop="status" label="状态">
               <template #default="scope">
-                <el-tag :type="scope.row.status === 'indexed' ? 'success' : 'warning'">
-                  {{ scope.row.status === 'indexed' ? '已索引' : '处理中' }}
+                <el-tag :type="getStatusType(scope.row.status)">
+                  {{ getStatusText(scope.row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -83,13 +86,29 @@ import request from '@/utils/request'
 const route = useRoute()
 const knowledgeId = route.params.id
 
+const formatFileSize = (bytes) => {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const getStatusType = (status) => {
+  const types = { pending: 'info', processing: 'warning', completed: 'success', failed: 'danger' }
+  return types[status] || 'info'
+}
+
+const getStatusText = (status) => {
+  const texts = { pending: '待处理', processing: '处理中', completed: '已完成', failed: '失败' }
+  return texts[status] || status
+}
+
 const knowledge = reactive({
   name: '',
   description: '',
   department: '',
-  owner: '',
   created_at: '',
-  status: 'active',
+  status: true,
 })
 
 const showEditDialog = ref(false)
@@ -148,8 +167,7 @@ const uploadFiles = async () => {
     for (const file of fileList.value) {
       const formData = new FormData()
       formData.append('file', file.raw)
-      formData.append('knowledge_base_id', knowledgeId)
-      await request.post('/documents/upload', formData, {
+      await request.post(`/documents/upload?knowledge_base_id=${knowledgeId}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
     }

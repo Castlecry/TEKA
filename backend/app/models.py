@@ -52,7 +52,7 @@ class KnowledgeBase(Base):
     description = Column(Text)
     department = Column(String(50))
     owner_id = Column(Integer, ForeignKey("users.id"))
-    embedding_model = Column(String(100), default="nomic-embed-text:v1.5")
+    embedding_model = Column(String(100), default="qwen3-embedding:4b")
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

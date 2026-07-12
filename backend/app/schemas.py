@@ -67,7 +67,7 @@ class KnowledgeBaseBase(BaseModel):
     name: str
     description: Optional[str] = None
     department: Optional[str] = None
-    embedding_model: Optional[str] = "nomic-embed-text:v1.5"
+    embedding_model: Optional[str] = "qwen3-embedding:4b"
 
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):

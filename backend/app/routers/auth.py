@@ -6,6 +6,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+
 from app import models, schemas
 from app.database import get_db
 from app.security import (
@@ -20,6 +22,11 @@ from app.security import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 async def get_current_user(
@@ -44,10 +51,21 @@ async def get_current_user(
     return user
 
 
+def _make_token(user: models.User) -> dict:
+    """生成 JWT token 的公共逻辑"""
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "user_id": user.id}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 @router.post("/login", response_model=schemas.Token)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    form_data: OAuth2PasswordRequestForm = Depends(),
 ):
+    """Swagger UI 兼容：表单登录"""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -55,11 +73,20 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username, "user_id": user.id}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return _make_token(user)
+
+
+@router.post("/login/json", response_model=schemas.Token)
+async def login_json(login_req: LoginRequest, db: Session = Depends(get_db)):
+    """JSON 登录（前端使用）"""
+    user = authenticate_user(db, login_req.username, login_req.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return _make_token(user)
 
 
 @router.get("/me", response_model=schemas.UserResponse)

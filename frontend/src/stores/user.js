@@ -7,7 +7,7 @@ export const useUserStore = defineStore('user', () => {
   const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
   const login = async (username, password) => {
-    const res = await request.post('/auth/login', { username, password })
+    const res = await request.post('/auth/login/json', { username, password })
     token.value = res.access_token
     localStorage.setItem('token', token.value)
     // 登录后获取用户信息

@@ -21,13 +21,12 @@
         <el-table-column prop="name" label="知识库名称" />
         <el-table-column prop="description" label="描述" />
         <el-table-column prop="department" label="所属部门" />
-        <el-table-column prop="owner" label="负责人" />
         <el-table-column prop="document_count" label="文档数量" />
         <el-table-column prop="created_at" label="创建时间" />
         <el-table-column prop="status" label="状态">
           <template #default="scope">
-            <el-tag :type="scope.row.status === 'active' ? 'success' : 'danger'">
-              {{ scope.row.status === 'active' ? '活跃' : '停用' }}
+            <el-tag :type="scope.row.status ? 'success' : 'danger'">
+              {{ scope.row.status ? '活跃' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -57,9 +56,6 @@
             <el-option label="人事部" value="人事部" />
           </el-select>
         </el-form-item>
-        <el-form-item label="负责人" prop="owner">
-          <el-input v-model="form.owner" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
@@ -86,7 +82,6 @@ const form = reactive({
   name: '',
   description: '',
   department: '',
-  owner: '',
 })
 
 const rules = {
@@ -134,14 +129,12 @@ const createKnowledge = async () => {
       name: form.name,
       description: form.description,
       department: form.department,
-      owner: form.owner,
     })
     showCreateDialog.value = false
     ElMessage.success('创建成功')
     form.name = ''
     form.description = ''
     form.department = ''
-    form.owner = ''
     await loadKnowledgeBases()
   } catch (error) {
     ElMessage.error('创建失败')

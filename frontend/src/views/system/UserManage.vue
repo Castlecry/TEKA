@@ -8,30 +8,24 @@
     <el-card>
       <div class="search-bar">
         <el-input placeholder="搜索用户名" v-model="searchText" style="width: 200px" />
-        <el-select placeholder="选择角色" v-model="selectedRole" style="width: 120px">
-          <el-option label="全部" value="" />
-          <el-option label="超级管理员" value="admin" />
-          <el-option label="部门管理员" value="dept_admin" />
-          <el-option label="普通用户" value="user" />
-        </el-select>
         <el-button icon="Search" @click="loadUsers">搜索</el-button>
       </div>
 
-      <el-table :data="users" border>
+      <el-table :data="filteredUsers" border>
         <el-table-column prop="username" label="用户名" />
         <el-table-column prop="email" label="邮箱" />
         <el-table-column prop="department" label="部门" />
-        <el-table-column prop="role" label="角色">
+        <el-table-column label="角色">
           <template #default="scope">
             <el-tag :type="getRoleType(scope.row.role)">
-              {{ getRoleName(scope.row.role) }}
+              {{ scope.row.role?.name || '-' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态">
+        <el-table-column label="状态">
           <template #default="scope">
             <el-switch
-              :value="scope.row.status === 'active'"
+              :model-value="scope.row.status"
               @change="toggleStatus(scope.row)"
             />
           </template>
@@ -46,13 +40,13 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="showCreateDialog" title="创建用户" width="500px">
+    <el-dialog v-model="showCreateDialog" :title="isEdit ? '编辑用户' : '创建用户'" width="500px">
       <el-form :model="form" :rules="rules" ref="formRef">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" />
+          <el-input v-model="form.username" :disabled="isEdit" />
         </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" />
+        <el-form-item label="密码" :prop="isEdit ? '' : 'password'">
+          <el-input v-model="form.password" type="password" :placeholder="isEdit ? '留空则不修改' : ''" />
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="form.email" />
@@ -65,58 +59,71 @@
             <el-option label="人事部" value="人事部" />
           </el-select>
         </el-form-item>
-        <el-form-item label="角色" prop="role">
-          <el-select v-model="form.role">
-            <el-option label="超级管理员" value="admin" />
-            <el-option label="部门管理员" value="dept_admin" />
-            <el-option label="普通用户" value="user" />
+        <el-form-item label="角色" prop="role_id">
+          <el-select v-model="form.role_id">
+            <el-option
+              v-for="role in roles"
+              :key="role.id"
+              :label="role.name"
+              :value="role.id"
+            />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="createUser">创建</el-button>
+        <el-button type="primary" @click="createUser">{{ isEdit ? '更新' : '创建' }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 
 const searchText = ref('')
-const selectedRole = ref('')
 const showCreateDialog = ref(false)
 const formRef = ref(null)
 const isEdit = ref(false)
 const editingUserId = ref(null)
 const roles = ref([])
+const users = ref([])
+
+const filteredUsers = computed(() => {
+  if (!searchText.value) return users.value
+  return users.value.filter(u => u.username?.includes(searchText.value))
+})
 
 const form = reactive({
   username: '',
   password: '',
   email: '',
   department: '',
-  role: '',
+  role_id: null,
 })
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   email: [{ required: true, message: '请输入邮箱', trigger: 'blur' }],
+  department: [{ required: true, message: '请选择部门', trigger: 'change' }],
+  role_id: [{ required: true, message: '请选择角色', trigger: 'change' }],
 }
 
-const users = ref([])
+const resetForm = () => {
+  isEdit.value = false
+  editingUserId.value = null
+  Object.assign(form, { username: '', password: '', email: '', department: '', role_id: null })
+}
 
 const loadUsers = async () => {
   try {
     const params = {}
-    if (searchText.value) params.search = searchText.value
-    if (selectedRole.value) params.role = selectedRole.value
+    if (searchText.value) params.username = searchText.value
     const data = await request.get('/users/', { params })
-    users.value = data
+    users.value = Array.isArray(data) ? data : []
   } catch (error) {
     ElMessage.error('加载用户列表失败')
   }
@@ -125,28 +132,26 @@ const loadUsers = async () => {
 const loadRoles = async () => {
   try {
     const data = await request.get('/users/roles/')
-    roles.value = data
+    roles.value = Array.isArray(data) ? data : []
   } catch (error) {
-    // 角色列表加载失败时使用默认值
+    // 角色加载失败不阻塞
   }
 }
 
 const getRoleType = (role) => {
-  const types = { admin: 'danger', dept_admin: 'warning', user: 'info' }
-  return types[role] || 'info'
-}
-
-const getRoleName = (role) => {
-  const names = { admin: '超级管理员', dept_admin: '部门管理员', user: '普通用户' }
-  return names[role] || role
+  if (!role) return 'info'
+  const name = role.name || ''
+  if (name.includes('技术负责')) return 'danger'
+  if (name.includes('团队负责')) return 'warning'
+  if (name.includes('开发')) return 'success'
+  return 'info'
 }
 
 const toggleStatus = async (row) => {
-  const newStatus = row.status === 'active' ? 'inactive' : 'active'
   try {
-    await request.put(`/users/${row.id}`, { ...row, status: newStatus })
-    row.status = newStatus
-    ElMessage.success(newStatus === 'active' ? '已启用' : '已禁用')
+    await request.put(`/users/${row.id}`, { status: !row.status })
+    row.status = !row.status
+    ElMessage.success(row.status ? '已启用' : '已禁用')
   } catch (error) {
     ElMessage.error('操作失败')
   }
@@ -160,7 +165,7 @@ const editUser = (row) => {
     password: '',
     email: row.email,
     department: row.department,
-    role: row.role,
+    role_id: row.role?.id || null,
   })
   showCreateDialog.value = true
 }
@@ -184,19 +189,24 @@ const createUser = async () => {
   if (!valid) return
 
   try {
+    const payload = {
+      username: form.username,
+      email: form.email,
+      department: form.department,
+      role_id: form.role_id,
+    }
+
     if (isEdit.value) {
-      const payload = { ...form }
-      if (!payload.password) delete payload.password
+      if (form.password) payload.password = form.password
       await request.put(`/users/${editingUserId.value}`, payload)
       ElMessage.success('更新成功')
     } else {
-      await request.post('/users/', { ...form })
+      payload.password = form.password
+      await request.post('/users/', payload)
       ElMessage.success('创建成功')
     }
     showCreateDialog.value = false
-    isEdit.value = false
-    editingUserId.value = null
-    Object.assign(form, { username: '', password: '', email: '', department: '', role: '' })
+    resetForm()
     await loadUsers()
   } catch (error) {
     ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
