@@ -23,7 +23,8 @@
         <p class="slogan">智能问答 · 知识检索 · 任务执行</p>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" class="login-form">
+      <!-- 登录表单 -->
+      <el-form v-if="!isRegister" ref="formRef" :model="form" :rules="rules" class="login-form">
         <el-form-item prop="username">
           <el-input
             v-model="form.username"
@@ -57,8 +58,75 @@
         </el-form-item>
       </el-form>
 
+      <!-- 注册表单 -->
+      <el-form v-else ref="regFormRef" :model="regForm" :rules="regRules" class="login-form">
+        <el-form-item prop="username">
+          <el-input
+            v-model="regForm.username"
+            placeholder="请输入用户名"
+            size="large"
+            prefix-icon="User"
+          />
+        </el-form-item>
+
+        <el-form-item prop="email">
+          <el-input
+            v-model="regForm.email"
+            placeholder="请输入邮箱"
+            size="large"
+            prefix-icon="Message"
+          />
+        </el-form-item>
+
+        <el-form-item prop="full_name">
+          <el-input
+            v-model="regForm.full_name"
+            placeholder="请输入姓名"
+            size="large"
+            prefix-icon="UserFilled"
+          />
+        </el-form-item>
+
+        <el-form-item prop="password">
+          <el-input
+            v-model="regForm.password"
+            type="password"
+            placeholder="请输入密码（至少6位）"
+            size="large"
+            prefix-icon="Lock"
+            show-password
+          />
+        </el-form-item>
+
+        <el-form-item prop="confirm_password">
+          <el-input
+            v-model="regForm.confirm_password"
+            type="password"
+            placeholder="请再次输入密码"
+            size="large"
+            prefix-icon="Lock"
+            show-password
+          />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button
+            type="primary"
+            size="large"
+            class="login-btn"
+            :loading="loading"
+            @click="handleRegister"
+          >
+            <span v-if="!loading">注 册</span>
+          </el-button>
+        </el-form-item>
+      </el-form>
+
       <div class="login-footer">
-        <span class="default-account">默认账号：admin / admin123</span>
+        <div class="switch-link" @click="toggleMode">
+          {{ isRegister ? '已有账号？去登录' : '没有账号？去注册' }}
+        </div>
+        <span class="default-account" v-if="!isRegister">默认账号：admin / admin123</span>
         <span class="copyright">© 2026 企业知识助手 · All Rights Reserved</span>
       </div>
     </div>
@@ -70,11 +138,14 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import request from '@/utils/request'
 
 const router = useRouter()
 const userStore = useUserStore()
 
+const isRegister = ref(false)
 const formRef = ref(null)
+const regFormRef = ref(null)
 const loading = ref(false)
 
 const form = reactive({
@@ -82,9 +153,50 @@ const form = reactive({
   password: '',
 })
 
+const regForm = reactive({
+  username: '',
+  email: '',
+  full_name: '',
+  password: '',
+  confirm_password: '',
+})
+
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+}
+
+const regRules = {
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 3, max: 20, message: '用户名长度为3-20个字符', trigger: 'blur' },
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' },
+  ],
+  full_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    { min: 6, message: '密码长度不能少于6位', trigger: 'blur' },
+  ],
+  confirm_password: [
+    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value !== regForm.password) {
+          callback(new Error('两次输入密码不一致'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+}
+
+const toggleMode = () => {
+  isRegister.value = !isRegister.value
 }
 
 const handleLogin = async () => {
@@ -98,6 +210,35 @@ const handleLogin = async () => {
     router.push('/')
   } catch (error) {
     const msg = error?.detail || '登录失败，请检查用户名和密码'
+    ElMessage.error(msg)
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleRegister = async () => {
+  if (!regFormRef.value) return
+  const valid = await regFormRef.value.validate()
+  if (!valid) return
+
+  loading.value = true
+  try {
+    await request.post('/auth/register', {
+      username: regForm.username,
+      email: regForm.email,
+      full_name: regForm.full_name,
+      password: regForm.password,
+    })
+    ElMessage.success('注册成功，请登录')
+    isRegister.value = false
+    form.username = regForm.username
+    regForm.username = ''
+    regForm.email = ''
+    regForm.full_name = ''
+    regForm.password = ''
+    regForm.confirm_password = ''
+  } catch (error) {
+    const msg = error?.response?.data?.detail || '注册失败，请重试'
     ElMessage.error(msg)
   } finally {
     loading.value = false
@@ -381,6 +522,19 @@ const handleLogin = async () => {
 .login-footer {
   text-align: center;
   animation: fadeUp 0.5s 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.switch-link {
+  display: block;
+  font-size: 13px;
+  color: var(--primary-light);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: var(--transition);
+}
+
+.switch-link:hover {
+  color: #fff;
 }
 
 .default-account {
