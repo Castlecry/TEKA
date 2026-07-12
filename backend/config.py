@@ -30,6 +30,9 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
 
+# Ollama 本地聊天模型（备选）
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:9b")
+
 # SearXNG
 SEARXNG_HOST = os.getenv("SEARXNG_HOST", "http://localhost:18080")
 SEARXNG_SECRET = os.getenv("SEARXNG_SECRET", "your-random-secret-key-change-this")

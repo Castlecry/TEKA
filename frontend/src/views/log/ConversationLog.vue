@@ -250,7 +250,6 @@ onMounted(() => {
 <style scoped>
 .conversation-log {
   padding: 24px;
-  animation: fadeIn 0.35s ease-out;
 }
 
 /* 页面头部 */
@@ -598,11 +597,6 @@ onMounted(() => {
 }
 
 /* 动画 */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-12px); }
   to { opacity: 1; transform: translateY(0); }

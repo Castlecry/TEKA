@@ -29,7 +29,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 async def _stream_rag_query(query: str, session_id: str, use_web: bool = False,
                             use_rerank: bool = True, use_rewrite: bool = True,
-                            knowledge_base_ids: Optional[List[int]] = None):
+                            knowledge_base_ids: Optional[List[int]] = None,
+                            provider: str = "api"):
     """将 rag_chain.rag_query 的回调模式包装为 async generator"""
     chunks: list = []
     loop = asyncio.get_event_loop()
@@ -46,6 +47,7 @@ async def _stream_rag_query(query: str, session_id: str, use_web: bool = False,
             use_rerank=use_rerank,
             use_rewrite=use_rewrite,
             stream_callback=_on_token,
+            provider=provider,
         )
     )
 
@@ -80,23 +82,44 @@ async def send_message(
 
     history = _conv_store.get_history(conversation_id)
 
+    provider = message.provider or "api"
+
     # 根据模式选择不同的处理方式
     if message.mode == "agent":
-        # Agent模式：使用Function Calling
-        response = agent_with_tools(
-            query=message.message,
-            session_id=conversation_id
-        )
-        # Agent 不自动保存对话（内部已保留历史用于上下文），手动保存
+        # Agent模式使用 Function Calling（仅 API 模式支持 tools）
+        if provider == "local":
+            # 本地模型不支持 Function Calling，回退到 RAG 模式
+            response = _rag_chain.rag_query(
+                query=message.message,
+                session_id=conversation_id,
+                use_web=message.use_web or False,
+                use_rerank=True,
+                use_rewrite=True,
+                provider="local",
+            )
+        else:
+            response = agent_with_tools(
+                query=message.message,
+                session_id=conversation_id
+            )
         _conv_store.save_message(conversation_id, "user", message.message)
         _conv_store.save_message(conversation_id, "assistant", response)
     elif message.mode == "langgraph":
-        # LangGraph模式：使用高级智能体编排
-        response = run_agent(
-            query=message.message,
-            session_id=conversation_id
-        )
-        # LangGraph 手动保存对话
+        # LangGraph 模式（仅 API 模式支持）
+        if provider == "local":
+            response = _rag_chain.rag_query(
+                query=message.message,
+                session_id=conversation_id,
+                use_web=message.use_web or False,
+                use_rerank=True,
+                use_rewrite=True,
+                provider="local",
+            )
+        else:
+            response = run_agent(
+                query=message.message,
+                session_id=conversation_id
+            )
         _conv_store.save_message(conversation_id, "user", message.message)
         _conv_store.save_message(conversation_id, "assistant", response)
     else:
@@ -107,6 +130,7 @@ async def send_message(
             use_web=message.use_web or False,
             use_rerank=True,
             use_rewrite=True,
+            provider=provider,
         )
 
     # 从 Redis 获取来源（简化处理：检索阶段没有直接返回 sources）
@@ -139,7 +163,8 @@ async def websocket_endpoint(
             message_data = json.loads(data)
             query = message_data.get("message", "")
             use_web = message_data.get("use_web", False)
-            mode = message_data.get("mode", "rag")  # 默认使用 rag 模式
+            mode = message_data.get("mode", "rag")  # rag, agent, langgraph
+            provider = message_data.get("provider", "api")  # api, local
 
             full_answer = ""
 
@@ -189,6 +214,7 @@ async def websocket_endpoint(
                     query=query,
                     session_id=conversation_id,
                     use_web=use_web,
+                    provider=provider,
                 ):
                     full_answer += chunk
                     await websocket.send_text(json.dumps({"type": "chunk", "content": chunk}))

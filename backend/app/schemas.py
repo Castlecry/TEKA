@@ -125,6 +125,7 @@ class ChatMessage(BaseModel):
     knowledge_base_ids: Optional[List[int]] = None
     use_web: Optional[bool] = False
     mode: Optional[str] = "rag"  # rag, agent, langgraph
+    provider: Optional[str] = "api"  # api=DeepSeek, local=Ollama
 
 
 class ChatResponse(BaseModel):

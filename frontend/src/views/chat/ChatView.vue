@@ -71,6 +71,16 @@
               <span>{{ mode.label }}</span>
             </button>
           </div>
+          <!-- 模型提供商选择 -->
+          <div class="provider-switch" @click="modelProvider = modelProvider === 'api' ? 'local' : 'api'">
+            <div class="mode-indicator" :class="{ active: modelProvider === 'local' }"></div>
+            <el-icon :size="14" :color="modelProvider === 'local' ? 'var(--warning)' : 'var(--primary)'">
+              <Cpu />
+            </el-icon>
+            <span class="mode-text" :class="{ active: modelProvider === 'local' }">
+              {{ modelProvider === 'api' ? '云端API' : '本地模型' }}
+            </span>
+          </div>
           <div class="mode-switch" @click="useWeb = !useWeb">
             <div class="mode-indicator" :class="{ active: useWeb }"></div>
             <el-icon :size="14" :color="useWeb ? 'var(--primary)' : 'var(--gray-400)'">
@@ -247,6 +257,7 @@ const inputMessage = ref('')
 const loading = ref(false)
 const useWeb = ref(false)
 const chatMode = ref('rag')
+const modelProvider = ref('api')  // 'api' = DeepSeek API, 'local' = Ollama 本地
 const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
@@ -375,7 +386,7 @@ const connectWebSocket = () => {
   }
 }
 
-const sendMessage = () => {
+const sendMessage = async () => {
   if (!inputMessage.value.trim() || loading.value) return
 
   const message = inputMessage.value.trim()
@@ -391,19 +402,41 @@ const sendMessage = () => {
   streamingMessage.value = ''
   scrollToBottom()
 
+  // 优先使用 WebSocket 流式，回退到 HTTP POST
   if (ws.value && ws.value.readyState === WebSocket.OPEN) {
     ws.value.send(JSON.stringify({
       message: message,
       use_web: useWeb.value,
       mode: chatMode.value,
+      provider: modelProvider.value,
     }))
   } else {
-    messages.value.push({
-      role: 'assistant',
-      content: '连接未就绪，请重试',
-      created_at: new Date().toLocaleTimeString(),
-    })
-    loading.value = false
+    // HTTP POST 回退（非流式）
+    try {
+      const res = await request.post('/chat/message', {
+        message: message,
+        conversation_id: currentSessionId.value,
+        use_web: useWeb.value,
+        mode: chatMode.value,
+        provider: modelProvider.value,
+      })
+      messages.value.push({
+        role: 'assistant',
+        content: res.answer || '无响应',
+        created_at: new Date().toLocaleTimeString(),
+      })
+      // 刷新会话列表
+      loadSessions()
+    } catch (e) {
+      console.error('HTTP 请求失败', e)
+      messages.value.push({
+        role: 'assistant',
+        content: '请求失败，请检查后端服务是否运行',
+        created_at: new Date().toLocaleTimeString(),
+      })
+    } finally {
+      loading.value = false
+    }
   }
 }
 
@@ -738,6 +771,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.provider-switch,
 .mode-switch {
   display: flex;
   align-items: center;
@@ -750,6 +784,7 @@ onUnmounted(() => {
   user-select: none;
 }
 
+.provider-switch:hover,
 .mode-switch:hover {
   background: var(--gray-200);
 }
