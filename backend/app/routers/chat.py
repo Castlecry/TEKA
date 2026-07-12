@@ -134,6 +134,7 @@ async def send_message_stream(
     _user_id = current_user.id
     _kb_ids = message.knowledge_base_ids or []
     _full_answer = []
+    _attachments: list[dict] = []
 
     async def run_rag():
         """在后台线程中执行 RAG 查询"""
@@ -143,7 +144,13 @@ async def send_message_stream(
 
         try:
             if message.mode == "agent" and provider != "local":
-                answer = agent_with_tools(query=message.message, session_id=scoped_id)
+                result = agent_with_tools(query=message.message, session_id=scoped_id)
+                if isinstance(result, dict):
+                    answer = result.get("answer", "")
+                    _attachments.extend(result.get("attachments", []))
+                else:
+                    # 兼容旧的纯字符串返回
+                    answer = str(result)
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 _full_answer.append(answer)
@@ -207,6 +214,9 @@ async def send_message_stream(
         while True:
             token = await _queue.get()
             if token == "__DONE__":
+                # 流式结束前，如果有附件，发送附件元数据
+                if _attachments:
+                    yield f"data: {json.dumps({'type': 'attachments', 'items': _attachments}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 break
             if token.startswith("__ERROR__:"):

@@ -1,6 +1,7 @@
 """Agent工具定义：Function Calling能力"""
 
 import json
+import os
 from datetime import datetime
 from typing import Dict, Any, List
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
@@ -90,6 +91,33 @@ TOOLS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_document",
+            "description": "将文本内容生成为 Word(.docx) 或 PDF 文档，并返回下载链接。当用户明确说'生成Word'、'生成PDF'、'导出文档'、'做成文件给我'、'下载报告'时使用。内容支持 Markdown 格式。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "文档标题"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "文档内容（支持 Markdown 格式：标题、列表、代码块、表格、引用、加粗等）"
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["word", "pdf"],
+                        "description": "输出格式：word 或 pdf，默认为 word",
+                        "default": "word"
+                    }
+                },
+                "required": ["title", "content"]
+            }
+        }
     }
 ]
 
@@ -169,15 +197,39 @@ def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
                     "active_users": 8
                 }
             }
-        
+
+        elif tool_name == "create_document":
+            from document_generator import generate_document
+            title = tool_args.get("title", "文档")
+            content = tool_args.get("content", "")
+            fmt = tool_args.get("format", "word").lower()
+            if not content:
+                return {"success": False, "error": "文档内容不能为空"}
+            try:
+                file_id, filename, file_path = generate_document(content, format=fmt, title=title)
+            except ValueError as ve:
+                return {"success": False, "error": str(ve)}
+            size_bytes = os.path.getsize(file_path)
+            return {
+                "success": True,
+                "data": {
+                    "file_id": file_id,
+                    "filename": filename,
+                    "format": fmt,
+                    "size_bytes": size_bytes,
+                    "size_kb": round(size_bytes / 1024, 1),
+                    "download_url": f"/files/download/{file_id}",
+                }
+            }
+
         else:
             return {"success": False, "error": f"未知工具: {tool_name}"}
-    
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def agent_with_tools(query: str, session_id: str = "default", stream_callback=None) -> str:
+def agent_with_tools(query: str, session_id: str = "default", stream_callback=None) -> dict:
     """
     Agent with Function Calling
     让LLM自主决定调用哪些工具来回答问题
@@ -188,7 +240,7 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
         stream_callback: 可选的流式回调函数，每生成一个token就调用
 
     Returns:
-        LLM 生成的最终回答
+        {"answer": "最终回答", "attachments": [{"file_id", "filename", "format", "size_kb", "download_url"}]}
     """
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -213,13 +265,19 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
                 "2. web_search - 联网搜索\n"
                 "3. calculate - 数学计算\n"
                 "4. get_current_date - 获取当前日期时间（涉及时间相关问题必须先调用）\n"
-                "5. get_system_info - 查看系统信息\n\n"
+                "5. get_system_info - 查看系统信息\n"
+                "6. create_document - 生成 Word/PDF 文档（当用户要求导出/下载/生成文档时使用）\n\n"
                 "重要规则：\n"
                 "- 涉及'今天'、'现在'、'最新'、'当前'、'近期'等时间相关问题时，必须先调用 get_current_date 获取准确日期\n"
                 "- 再用真实日期生成查询词（如 '2026年7月12日 新闻'），避免编造日期\n"
                 "- 对于需要外部信息的问题，优先调用 search_knowledge_base 搜索本地知识库\n"
                 "- 如果本地知识库没有找到相关信息，再考虑使用 web_search 联网搜索\n"
                 "- 对于数学计算类问题，使用 calculate 工具\n"
+                "- 当用户要求'生成Word'、'生成PDF'、'导出文档'、'下载为文件'、'做成文件给我'时，使用 create_document 工具\n"
+                "  - format 参数：word（默认）或 pdf\n"
+                "  - content 参数应使用 Markdown 格式组织内容（标题/列表/表格/代码块等）\n"
+                "  - 如果用户没有指定格式，默认生成 word 文档\n"
+                "- 调用 create_document 后，告知用户文档已生成并提供下载链接\n"
                 "请用中文回答，回答要准确、简洁、专业。"
             )
         }
@@ -227,6 +285,8 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
     for msg in history:
         messages.append(msg)
     messages.append({"role": "user", "content": query})
+
+    attachments: list[dict] = []
 
     try:
         response = _safe_request(
@@ -246,11 +306,11 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
     except Exception as e:
         error_msg = f"调用模型失败: {str(e)}"
         print(f"[Agent] {error_msg}")
-        return error_msg
+        return {"answer": error_msg, "attachments": []}
 
     result = response.json()
     if "choices" not in result or not result["choices"]:
-        return "抱歉，模型暂时无法响应，请稍后再试。"
+        return {"answer": "抱歉，模型暂时无法响应，请稍后再试。", "attachments": []}
 
     message = result["choices"][0]["message"]
 
@@ -271,6 +331,18 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
 
             tool_result = execute_tool(tool_name, tool_args)
 
+            # 收集 create_document 工具的附件
+            if tool_name == "create_document" and tool_result.get("success"):
+                data = tool_result.get("data", {})
+                if "file_id" in data:
+                    attachments.append({
+                        "file_id": data["file_id"],
+                        "filename": data["filename"],
+                        "format": data["format"],
+                        "size_kb": data["size_kb"],
+                        "download_url": data["download_url"],
+                    })
+
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call["id"],
@@ -278,14 +350,15 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
             })
 
         # 第二轮：让LLM基于工具结果生成最终回答
-        return _generate_with_messages(headers, messages, stream_callback)
+        final_answer = _generate_with_messages(headers, messages, stream_callback)
+        return {"answer": final_answer, "attachments": attachments}
 
     else:
         # 没有工具调用，直接返回回答
         content = message.get("content", "抱歉，我无法回答这个问题。")
         if stream_callback:
             stream_callback(content)
-        return content
+        return {"answer": content, "attachments": []}
 
 
 def _generate_with_messages(headers: dict, messages: list, stream_callback=None) -> str:

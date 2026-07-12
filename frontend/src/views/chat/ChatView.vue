@@ -146,6 +146,29 @@
             <div class="message-body">
               <RichContent v-if="message.role === 'assistant'" :content="message.content" type="markdown" />
               <span v-else>{{ message.content }}</span>
+              <!-- 文档下载附件 -->
+              <div v-if="message.attachments && message.attachments.length > 0" class="message-attachments">
+                <a
+                  v-for="att in message.attachments"
+                  :key="att.file_id"
+                  :href="att.download_url + '?token=' + (token || '')"
+                  class="attachment-card"
+                  :class="att.format"
+                  download
+                >
+                  <el-icon :size="20" class="attachment-icon">
+                    <Document v-if="att.format === 'word'" />
+                    <Reading v-else />
+                  </el-icon>
+                  <div class="attachment-info">
+                    <div class="attachment-name">{{ att.filename }}</div>
+                    <div class="attachment-meta">
+                      {{ att.format === 'word' ? 'Word 文档' : 'PDF 文档' }} · {{ att.size_kb }} KB
+                    </div>
+                  </div>
+                  <el-icon :size="16" class="attachment-download"><Download /></el-icon>
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -262,13 +285,14 @@
 import { ref, reactive, nextTick, onMounted, watch } from 'vue'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
-  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document
+  Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document, Reading, Download
 } from '@element-plus/icons-vue'
 import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
+const token = ref(localStorage.getItem('token') || '')
 const currentSessionId = ref('default')
 const messages = ref([])
 const inputMessage = ref('')
@@ -443,6 +467,11 @@ const sendMessage = async () => {
                 fullAnswer += parsed.content
                 assistantMsg.content = fullAnswer
                 scrollToBottom()
+              } else if (parsed.type === 'attachments' && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                // 接收附件元数据，附加到 assistant 消息上
+                assistantMsg.attachments = parsed.items
+              } else if (parsed.type === 'error') {
+                assistantMsg.content = `错误: ${parsed.content}`
               }
             } catch (e) {}
           }
@@ -1063,6 +1092,105 @@ watch(
   color: #fff;
   border-top-right-radius: 4px;
   box-shadow: 0 2px 12px rgba(79, 110, 247, 0.2);
+}
+
+/* 附件下载卡片 */
+.message-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f0ff 100%);
+  border: 1px solid rgba(79, 110, 247, 0.15);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--gray-700);
+  transition: var(--transition);
+  cursor: pointer;
+}
+
+.attachment-card:hover {
+  background: linear-gradient(135deg, #e6f0ff 0%, #d6e4ff 100%);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(79, 110, 247, 0.15);
+}
+
+.attachment-card.word {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.attachment-card.word:hover {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border-color: #2563eb;
+}
+
+.attachment-card.pdf {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+.attachment-card.pdf:hover {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border-color: #dc2626;
+}
+
+.attachment-icon {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.attachment-card.word .attachment-icon {
+  color: #2563eb;
+}
+
+.attachment-card.pdf .attachment-icon {
+  color: #dc2626;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.attachment-meta {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.attachment-download {
+  color: var(--gray-400);
+  flex-shrink: 0;
+}
+
+.attachment-card:hover .attachment-download {
+  color: var(--primary);
+}
+
+.attachment-card.word:hover .attachment-download {
+  color: #2563eb;
+}
+
+.attachment-card.pdf:hover .attachment-download {
+  color: #dc2626;
 }
 
 /* 打字指示器 */
