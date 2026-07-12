@@ -85,6 +85,7 @@ class KnowledgeBaseUpdate(BaseModel):
 class KnowledgeBaseResponse(KnowledgeBaseBase):
     id: int
     owner_id: int
+    is_personal: Optional[bool] = False
     status: bool
     created_at: datetime
     updated_at: datetime

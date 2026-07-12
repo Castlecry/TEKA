@@ -8,7 +8,9 @@
       "Bash(taskkill //F //IM python.exe)",
       "Bash(taskkill //F //IM python3.exe)",
       "Bash(python -c ' *)",
-      "Bash(git commit -m 'Fix: PostgreSQL ENUM name, OpenSearch 2560-dim embedding, Windows GBK encoding *)"
+      "Bash(git commit -m 'Fix: PostgreSQL ENUM name, OpenSearch 2560-dim embedding, Windows GBK encoding *)",
+      "Bash(git commit -m 'feat: Redis缓存增强 + Agent/LangGraph完善 + Bug修复 + Sprint重写 *)",
+      "Bash(curl -s http://localhost:8888/health)"
     ]
   }
 }

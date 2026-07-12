@@ -15,6 +15,10 @@ with engine.connect() as conn:
     conn.execute(text(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR(500)"
     ))
+    # knowledge_bases 表添加 is_personal 列
+    conn.execute(text(
+        "ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS is_personal BOOLEAN DEFAULT FALSE"
+    ))
     conn.commit()
 
 app = FastAPI(title="科技企业知识助手", version="1.0.0")
