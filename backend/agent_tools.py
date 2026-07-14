@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import uuid
 from datetime import datetime
 from typing import Dict, Any, List
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
@@ -229,6 +231,46 @@ def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+def _parse_dsml_tool_calls(content: str) -> list:
+    """
+    解析 DeepSeek DSML 格式的工具调用
+    格式示例（注意空格变化）：
+    <| | DSML | | tool_calls>
+    <| | DSML | | invoke name="web_search">
+    <| | DSML | | parameter name="query" string="true">公司报税</| | DSML | | parameter>
+    </| | DSML | | invoke>
+    </| | DSML | | tool_calls>
+    """
+    tool_calls = []
+    
+    # 匹配所有 invoke 块（兼容多种空格格式）
+    invoke_pattern = r'<\|[\s|]*DSML[\s|]*\|[\s|]*invoke\s+name="([^"]+)"[\s|]*>(.*?)</\|[\s|]*DSML[\s|]*\|[\s|]*invoke[\s|]*>'
+    invokes = re.findall(invoke_pattern, content, re.DOTALL)
+    
+    for tool_name, params_str in invokes:
+        # 解析参数
+        params = {}
+        param_pattern = r'<\|[\s|]*DSML[\s|]*\|[\s|]*parameter\s+name="([^"]+)"[^>]*>(.*?)</\|[\s|]*DSML[\s|]*\|[\s|]*parameter[\s|]*>'
+        param_matches = re.findall(param_pattern, params_str, re.DOTALL)
+        
+        for param_name, param_value in param_matches:
+            # 尝试解析 JSON
+            try:
+                params[param_name] = json.loads(param_value.strip())
+            except json.JSONDecodeError:
+                params[param_name] = param_value.strip()
+        
+        tool_calls.append({
+            "id": str(uuid.uuid4()),
+            "function": {
+                "name": tool_name,
+                "arguments": json.dumps(params, ensure_ascii=False)
+            }
+        })
+    
+    return tool_calls
+
+
 def agent_with_tools(query: str, session_id: str = "default", stream_callback=None) -> dict:
     """
     Agent with Function Calling
@@ -316,9 +358,23 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
 
     message = result["choices"][0]["message"]
 
+    # 优先检查 OpenAI 标准 tool_calls 字段
+    tool_calls = message.get("tool_calls") or []
+
+    # 如果没有标准 tool_calls，尝试从 content 中解析 DSML 格式
+    if not tool_calls:
+        content = message.get("content", "")
+        if "<|DSML|" in content or "<| | DSML |" in content:
+            tool_calls = _parse_dsml_tool_calls(content)
+            # 从 content 中移除 DSML 工具调用块，保留普通文本
+            content = re.sub(
+                r'<\|[\s|]*DSML[\s|]*\|[\s|]*tool_calls[\s|]*>.*?</\|[\s|]*DSML[\s|]*\|[\s|]*tool_calls[\s|]*>',
+                '', content, flags=re.DOTALL
+            ).strip()
+            message["content"] = content
+
     # 检查是否有工具调用
-    if "tool_calls" in message and message["tool_calls"]:
-        tool_calls = message["tool_calls"]
+    if tool_calls:
         messages.append(message)
 
         # 执行每个工具调用
