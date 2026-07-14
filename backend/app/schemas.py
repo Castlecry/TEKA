@@ -89,6 +89,7 @@ class KnowledgeBaseResponse(KnowledgeBaseBase):
     owner_id: int
     is_personal: Optional[bool] = False
     is_shared: Optional[bool] = False
+    is_locked: Optional[bool] = False
     status: bool
     created_at: datetime
     updated_at: datetime

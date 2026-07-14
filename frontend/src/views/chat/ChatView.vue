@@ -210,7 +210,7 @@
           <span>{{ selectedFile.name }}</span>
           <el-icon :size="14" class="remove-file" @click="selectedFile = null"><Close /></el-icon>
         </div>
-        <!-- 工具栏：搜索模式 + 模型来源 -->
+        <!-- 工具栏：搜索模式 + 模型来源 + 知识库选择 -->
         <div class="input-toolbar">
           <div class="toolbar-left">
             <button class="toolbar-btn" :class="{ active: useWeb }" @click="useWeb = !useWeb">
@@ -220,8 +220,27 @@
             </button>
             <button class="toolbar-btn" :class="{ active: modelProvider === 'local' }" @click="modelProvider = modelProvider === 'api' ? 'local' : 'api'">
               <el-icon :size="16"><Cpu /></el-icon>
-              <span>{{ modelProvider === 'api' ? '云端API' : '本地模型' }}</span>
+              <span>{{ modelProvider === 'api' ? '云端 API' : '本地模型' }}</span>
             </button>
+            <!-- 自由问答模式下显示知识库选择 -->
+            <el-select
+              v-if="currentModule === 'general'"
+              v-model="selectedKBIds"
+              multiple
+              placeholder="选择知识库（可选）"
+              class="kb-selector"
+              size="small"
+              collapse-tags
+              collapse-tags-tooltip
+              :max-collapse-tags="2"
+            >
+              <el-option
+                v-for="kb in availableKnowledgeBases"
+                :key="kb.id"
+                :label="kb.name"
+                :value="kb.id"
+              />
+            </el-select>
           </div>
         </div>
         <div class="chat-input">
@@ -335,6 +354,8 @@ const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
 const copiedIndex = ref(-1)
 const isFavorited = ref(false)
+const selectedKBIds = ref([])
+const availableKnowledgeBases = ref([])
 let lastUserId = userStore.user?.id || null
 
 // 模块相关
@@ -521,6 +542,10 @@ const sendMessage = async () => {
           mode: chatMode.value,
           provider: modelProvider.value,
           module: currentModule.value,
+          // 自由问答模式下，如果用户选择了知识库则使用之；否则使用所有个人+通用知识库
+          knowledge_base_ids: currentModule.value === 'general' && selectedKBIds.value.length > 0
+            ? selectedKBIds.value
+            : undefined,
         }),
       })
 
@@ -686,12 +711,36 @@ const resetChatState = () => {
   inputMessage.value = ''
   selectedFile.value = null
   loading.value = false
+  selectedKBIds.value = []
+}
+
+// 加载自由问答模式下可选的知识库（通用库 + 用户的个人库，不含其他三个模块）
+const loadAvailableKnowledgeBases = async () => {
+  try {
+    const kbs = await request.get('/knowledge-bases/', { params: { module: 'general' } })
+    // 合并 general 共享库 + 用户自己的个人知识库
+    const list = []
+    for (const kb of kbs) {
+      if (kb.module === 'general') list.push(kb)
+    }
+    // 额外加载用户的个人知识库（任意模块）
+    const all = await request.get('/knowledge-bases/')
+    for (const kb of all) {
+      if (kb.is_personal && kb.owner_id === userStore.user?.id) {
+        list.push(kb)
+      }
+    }
+    availableKnowledgeBases.value = list
+  } catch (e) {
+    console.error('加载可选知识库失败', e)
+  }
 }
 
 onMounted(() => {
   lastUserId = userStore.user?.id || null
   loadModules()
   loadSessions()
+  loadAvailableKnowledgeBases()
 
   // 处理从 Dashboard 跳转来的模块和问题
   if (route.query.module) {

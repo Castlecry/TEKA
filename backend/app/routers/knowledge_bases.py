@@ -206,6 +206,10 @@ async def delete_knowledge_base(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
+    # 系统内置的初始知识库不允许删除
+    if kb.is_locked:
+        raise HTTPException(status_code=403, detail="系统初始知识库不可删除")
+
     is_admin = current_user.role and "all" in (current_user.role.permissions or [])
 
     if not is_admin:

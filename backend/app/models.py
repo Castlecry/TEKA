@@ -57,6 +57,7 @@ class KnowledgeBase(Base):
     is_personal = Column(Boolean, default=False)  # 是否为个人知识库
     module = Column(String(50), default="general")  # 所属模块: policy / tech / admin / general
     is_shared = Column(Boolean, default=False)  # 是否为共享知识库（管理员创建，所有用户可见）
+    is_locked = Column(Boolean, default=False)  # 是否为系统内置的初始知识库（不可删除）
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

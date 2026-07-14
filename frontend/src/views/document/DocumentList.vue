@@ -30,10 +30,9 @@
               @keyup.enter="loadDocuments"
             />
           </div>
-          <el-select v-model="selectedKB" placeholder="选择知识库" class="kb-select">
+          <el-select v-model="selectedKB" placeholder="选择知识库" class="kb-select" clearable>
             <el-option label="全部知识库" value="" />
-            <el-option label="公司规章制度" value="1" />
-            <el-option label="产品技术文档" value="2" />
+            <el-option v-for="kb in knowledgeBases" :key="kb.id" :label="kb.name" :value="kb.id" />
           </el-select>
           <el-button type="primary" @click="loadDocuments" class="search-btn">
             <el-icon><Search /></el-icon>
@@ -266,10 +265,20 @@ const showUploadDialog = ref(false)
 const fileList = ref([])
 
 const documents = ref([])
+const knowledgeBases = ref([])
+
+const loadKnowledgeBases = async () => {
+  try {
+    knowledgeBases.value = await request.get('/knowledge-bases/')
+  } catch (error) {
+    console.error('加载知识库列表失败', error)
+  }
+}
 
 const loadDocuments = async () => {
   try {
     const params = {}
+    if (searchText.value) params.filename = searchText.value
     if (selectedKB.value) params.knowledge_base_id = selectedKB.value
     const data = await request.get('/documents/', { params })
     documents.value = data

@@ -21,6 +21,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.get("/", response_model=List[schemas.DocumentResponse])
 async def get_documents(
     knowledge_base_id: Optional[int] = None,
+    filename: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -29,6 +30,8 @@ async def get_documents(
     query = db.query(models.Document)
     if knowledge_base_id:
         query = query.filter(models.Document.knowledge_base_id == knowledge_base_id)
+    if filename:
+        query = query.filter(models.Document.filename.contains(filename))
     documents = query.offset(skip).limit(limit).all()
     return documents
 
