@@ -273,11 +273,13 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
                 "- 对于需要外部信息的问题，优先调用 search_knowledge_base 搜索本地知识库\n"
                 "- 如果本地知识库没有找到相关信息，再考虑使用 web_search 联网搜索\n"
                 "- 对于数学计算类问题，使用 calculate 工具\n"
-                "- 当用户要求'生成Word'、'生成PDF'、'导出文档'、'下载为文件'、'做成文件给我'时，使用 create_document 工具\n"
+                "- 当用户要求'生成Word'、'生成PDF'、'导出文档'、'下载为文件'、'做成文件给我'、'做成word/pdf文档给我'时：\n"
+                "  - 必须调用 create_document 工具（这是生成真实文件的唯一途径）\n"
                 "  - format 参数：word（默认）或 pdf\n"
                 "  - content 参数应使用 Markdown 格式组织内容（标题/列表/表格/代码块等）\n"
                 "  - 如果用户没有指定格式，默认生成 word 文档\n"
-                "- 调用 create_document 后，告知用户文档已生成并提供下载链接\n"
+                "  - 严禁不调用工具就告诉用户'文档已生成'或编造下载链接——这会误导用户！\n"
+                "- 调用 create_document 后，用一句话告诉用户文档已生成（不要在文案里编具体的链接文本）\n"
                 "请用中文回答，回答要准确、简洁、专业。"
             )
         }

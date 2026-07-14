@@ -157,6 +157,10 @@ async def send_message_stream(
                 else:
                     # 兼容旧的纯字符串返回
                     answer = str(result)
+
+                # 兜底：检测 LLM 是否"幻觉"了文档生成（提到了文档/链接但未调工具）
+                _try_rescue_document_hallucination(answer, _attachments, message.message)
+
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 _full_answer.append(answer)
@@ -431,6 +435,57 @@ async def delete_conversation_history(
     db.commit()
 
     return {"message": "Conversation history deleted"}
+
+
+def _try_rescue_document_hallucination(answer: str, attachments: list, user_query: str) -> None:
+    """
+    兜底：检测 LLM 在 answer 里"幻觉"地提到了"文档已生成"/"点击下载"等措辞，
+    但实际没有调 create_document 工具（attachments 为空）。
+    一旦命中，直接用 LLM 的回答内容生成一份文档并加入 attachments。
+    """
+    if attachments:
+        return  # 已经有真实附件，不处理
+
+    hallucination_keywords = [
+        "文档已生成", "文档已创建", "已生成", "文件已生成",
+        "点击下载", "点击以下链接下载", "下载链接", "Word 文档",
+    ]
+    if not any(kw in answer for kw in hallucination_keywords):
+        return
+
+    # 不像是文档生成请求
+    if not any(kw in user_query for kw in ["生成", "导出", "做成", "下载", "Word", "PDF", "word", "pdf", "文档", "文件"]):
+        return
+
+    # 从 answer 里去掉"链接"等装饰性文字，作为文档内容
+    content = answer.strip()
+    # 简单去除外层包装
+    if len(content) < 20:
+        return
+
+    # 检测格式
+    fmt = "pdf" if "pdf" in user_query.lower() else "word"
+    title = "生成的文档"
+    # 尝试从用户 query 提取标题
+    for prefix in ["做成", "生成", "导出"]:
+        if prefix in user_query:
+            title = user_query.split(prefix, 1)[1].strip(" ：:，,。了吗呢吗？?")
+            break
+
+    try:
+        from document_generator import generate_document
+        file_id, filename, file_path = generate_document(content, format=fmt, title=title or "生成的文档")
+        size_bytes = os.path.getsize(file_path)
+        attachments.append({
+            "file_id": file_id,
+            "filename": filename,
+            "format": fmt,
+            "size_kb": round(size_bytes / 1024, 1),
+            "download_url": f"/files/download/{file_id}",
+        })
+        print(f"[Rescue] 兜底成功：幻觉检测，强制生成文档 {filename}")
+    except Exception as e:
+        print(f"[Rescue] 兜底失败: {e}")
 
 
 def _require_admin(current_user: models.User):
