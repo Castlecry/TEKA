@@ -94,6 +94,7 @@ class ConversationLog(Base):
     answer = Column(Text)
     sources = Column(JSON)
     knowledge_base_ids = Column(JSON)
+    module = Column(String(50), default="general")  # 关联的模块
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")

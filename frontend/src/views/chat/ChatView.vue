@@ -28,7 +28,18 @@
           <el-icon :size="16" class="session-icon"><ChatLineRound /></el-icon>
           <div class="session-info">
             <div class="session-name">{{ session.last_message || '新对话' }}</div>
-            <div class="session-time">{{ session.last_message_at }}</div>
+            <div class="session-time">
+              <el-tag
+                v-if="session.module"
+                size="small"
+                effect="plain"
+                :style="{ background: getModuleColor(session.module) + '15', color: getModuleColor(session.module), border: 0 }"
+                style="margin-right: 4px; padding: 0 6px; height: 16px; line-height: 16px;"
+              >
+                {{ getModuleName(session.module) }}
+              </el-tag>
+              {{ session.last_message_at }}
+            </div>
           </div>
           <button
             class="delete-btn"
@@ -368,6 +379,12 @@ const iconMap = { Document, Monitor, OfficeBuilding: Monitor, ChatLineRound, Sun
 
 const getModuleIcon = (iconName) => iconMap[iconName] || ChatLineRound
 
+// 模块颜色与名称映射（用于历史对话列表的小徽标）
+const moduleColorMap = { policy: '#4f6ef7', tech: '#22c55e', admin: '#f59e0b', general: '#8b5cf6' }
+const moduleNameMap = { policy: '规章制度', tech: '产品技术', admin: '行政服务', general: '自由问答' }
+const getModuleColor = (mod) => moduleColorMap[mod] || '#8b5cf6'
+const getModuleName = (mod) => moduleNameMap[mod] || '自由问答'
+
 const currentModuleData = computed(() => {
   return modules.value.find(m => m.id === currentModule.value) || modules.value[3] || { name: '自由问答', color: '#8b5cf6', icon: 'ChatLineRound', example_questions: [] }
 })
@@ -386,8 +403,10 @@ const loadModules = async () => {
 }
 
 const switchModule = (moduleId) => {
+  // 切换模块：不创建新会话，仅改变 RAG 检索的知识库范围
+  // 这样用户在历史对话中切换模块，可以看到其他模块的回答
   currentModule.value = moduleId
-  createNewSession()
+  localStorage.setItem('currentModule', moduleId)
 }
 
 // 模式配置
@@ -416,6 +435,12 @@ const createNewSession = () => {
 const switchSession = (sessionId) => {
   currentSessionId.value = sessionId
   localStorage.setItem('currentSessionId', sessionId)
+  // 恢复该会话所属的模块
+  const sess = sessions.value.find(s => s.session_id === sessionId || s.conversation_id === sessionId)
+  if (sess && sess.module) {
+    currentModule.value = sess.module
+    localStorage.setItem('currentModule', sess.module)
+  }
   loadHistory(sessionId)
   checkFavoriteStatus(sessionId)
 }
@@ -770,6 +795,11 @@ onMounted(async () => {
   // 处理从 Dashboard 跳转来的模块和问题
   if (route.query.module) {
     currentModule.value = route.query.module
+    localStorage.setItem('currentModule', route.query.module)
+  } else {
+    // 恢复上次的模块选择
+    const savedModule = localStorage.getItem('currentModule')
+    if (savedModule) currentModule.value = savedModule
   }
   if (route.query.question) {
     inputMessage.value = route.query.question
@@ -778,6 +808,12 @@ onMounted(async () => {
   if (route.query.session) {
     currentSessionId.value = route.query.session
     localStorage.setItem('currentSessionId', route.query.session)
+    // 恢复该会话的模块
+    const sess = sessions.value.find(s => s.session_id === route.query.session || s.conversation_id === route.query.session)
+    if (sess && sess.module) {
+      currentModule.value = sess.module
+      localStorage.setItem('currentModule', sess.module)
+    }
     await loadHistory(route.query.session)
     await checkFavoriteStatus(route.query.session)
   } else {
@@ -788,6 +824,11 @@ onMounted(async () => {
       const exists = sessions.value.find(s => s.session_id === savedSessionId || s.conversation_id === savedSessionId)
       if (exists) {
         currentSessionId.value = savedSessionId
+        // 恢复该会话所属模块
+        if (exists.module) {
+          currentModule.value = exists.module
+          localStorage.setItem('currentModule', exists.module)
+        }
         await loadHistory(savedSessionId)
         await checkFavoriteStatus(savedSessionId)
       } else {

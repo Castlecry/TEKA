@@ -115,6 +115,7 @@ async def send_message(
         answer=answer_text,
         sources=sources,
         knowledge_base_ids=message.knowledge_base_ids or [],
+        module=message.module or "general",
     )
     db.add(db_log)
     db.commit()
@@ -220,6 +221,7 @@ async def send_message_stream(
                 answer=full_text,
                 sources=[],
                 knowledge_base_ids=_kb_ids,
+                module=message.module or "general",
             )
             db.add(db_log)
             db.commit()
@@ -314,6 +316,7 @@ async def upload_and_ask(
         answer=answer_text,
         sources=[],
         knowledge_base_ids=[],
+        module=message.module or "general",
     )
     db.add(db_log)
     db.commit()
@@ -358,6 +361,7 @@ async def get_conversation_sessions(
                 "last_time": log.created_at.isoformat() if log.created_at else "",
                 "user_id": current_user.id,
                 "created_at": log.created_at.isoformat() if log.created_at else "",
+                "module": log.module or "general",
             }
 
     return list(sessions.values())
