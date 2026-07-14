@@ -129,13 +129,13 @@
               <span v-else>{{ message.content }}</span>
               <!-- 文档下载附件 -->
               <div v-if="message.attachments && message.attachments.length > 0" class="message-attachments">
-                <a
+                <div
                   v-for="att in message.attachments"
                   :key="att.file_id"
-                  :href="att.download_url + '?token=' + (token || '')"
                   class="attachment-card"
                   :class="att.format"
-                  download
+                  @click="downloadAttachment(att)"
+                  style="cursor: pointer;"
                 >
                   <el-icon :size="20" class="attachment-icon">
                     <Document v-if="att.format === 'word'" />
@@ -148,7 +148,7 @@
                     </div>
                   </div>
                   <el-icon :size="16" class="attachment-download"><Download /></el-icon>
-                </a>
+                </div>
               </div>
               <!-- 消息操作栏（仅 AI 消息） -->
               <div v-if="message.role === 'assistant' && message.content" class="message-actions">
@@ -514,6 +514,26 @@ const scrollToBottom = () => {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
     }
   })
+}
+
+// 下载附件文档（fetch blob 触发下载，避免 <a download> 跨域失效）
+const downloadAttachment = async (att) => {
+  const url = att.download_url + '?token=' + (token.value || '')
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error('下载失败')
+    const blob = await resp.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = att.filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    console.error('下载失败', e)
+    ElMessage?.error?.('文件下载失败')
+  }
 }
 
 // 复制回答
