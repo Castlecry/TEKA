@@ -592,7 +592,9 @@ const sendMessage = async () => {
       if (!sendConvId || sendConvId === 'pending' || sendConvId === 'default') {
         sendConvId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).slice(2)
       }
-      const response = await fetch('/api/chat/stream', {
+      // SSE 直连后端（绕过 Vite 代理防止缓冲）
+      const backendHost = window.location.hostname === 'localhost' ? 'http://localhost:8888' : ''
+      const response = await fetch(`${backendHost}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -618,6 +620,9 @@ const sendMessage = async () => {
       }
 
       // 读取 SSE 流
+      if (!response.body) {
+        throw new Error('浏览器不支持流式读取，请使用现代浏览器')
+      }
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
