@@ -77,11 +77,15 @@ async def download_file(
             ".txt": "text/plain",
         }.get(ext, "application/octet-stream")
 
+    # RFC 5987: 中文文件名需要 URL-encode，否则 latin-1 编码会报错
+    from urllib.parse import quote
+    encoded_filename = quote(filename)
+
     return FileResponse(
         path=file_path,
         media_type=media_type,
         filename=filename,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
         },
     )
