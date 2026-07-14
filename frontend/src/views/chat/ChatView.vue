@@ -52,11 +52,25 @@
             <el-icon :size="18"><Menu /></el-icon>
           </button>
           <h2>
-            <el-icon :size="18" color="var(--primary)"><Promotion /></el-icon>
-            AI 助手
+            <el-icon :size="18" :color="currentModuleColor"><Component :is="currentModuleIcon" /></el-icon>
+            {{ currentModuleName }}
           </h2>
         </div>
         <div class="header-actions">
+          <!-- 模块切换 -->
+          <div class="module-selector">
+            <button
+              v-for="mod in modules"
+              :key="mod.id"
+              class="module-tab"
+              :class="{ active: currentModule === mod.id }"
+              :style="currentModule === mod.id ? { borderColor: mod.color, color: mod.color } : {}"
+              @click="switchModule(mod.id)"
+            >
+              <el-icon :size="14"><Component :is="getModuleIcon(mod.icon)" /></el-icon>
+              <span>{{ mod.name }}</span>
+            </button>
+          </div>
           <div class="chat-mode-selector">
             <button
               v-for="mode in chatModes"
@@ -292,17 +306,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted, watch } from 'vue'
+import { ref, reactive, nextTick, onMounted, watch, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
   Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document, Reading, Download, Paperclip,
   CopyDocument, Check, RefreshRight, Star, WarningFilled
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import RichContent from '@/components/RichContent.vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
 const token = ref(localStorage.getItem('token') || '')
 const currentSessionId = ref('default')
 const messages = ref([])
@@ -310,13 +328,43 @@ const inputMessage = ref('')
 const loading = ref(false)
 const useWeb = ref(false)
 const chatMode = ref('rag')
-const modelProvider = ref('api')  // 'api' = DeepSeek API, 'local' = Ollama 本地
+const modelProvider = ref('api')
 const messagesContainer = ref(null)
 const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
 const copiedIndex = ref(-1)
 let lastUserId = userStore.user?.id || null
+
+// 模块相关
+const modules = ref([])
+const currentModule = ref('general')
+
+const iconMap = { Document, Monitor, OfficeBuilding: Monitor, ChatLineRound, Sunny }
+
+const getModuleIcon = (iconName) => iconMap[iconName] || ChatLineRound
+
+const currentModuleData = computed(() => {
+  return modules.value.find(m => m.id === currentModule.value) || modules.value[3] || { name: '自由问答', color: '#8b5cf6', icon: 'ChatLineRound', example_questions: [] }
+})
+
+const currentModuleName = computed(() => currentModuleData.value.name || '自由问答')
+const currentModuleColor = computed(() => currentModuleData.value.color || '#8b5cf6')
+const exampleQuestions = computed(() => currentModuleData.value.example_questions || [])
+
+const loadModules = async () => {
+  try {
+    const data = await request.get('/knowledge-bases/modules')
+    modules.value = data
+  } catch (error) {
+    console.error('加载模块列表失败', error)
+  }
+}
+
+const switchModule = (moduleId) => {
+  currentModule.value = moduleId
+  createNewSession()
+}
 
 // 模式配置
 const chatModes = [
@@ -329,12 +377,6 @@ const settings = reactive({
   top_k: 5,
   similarity_threshold: 0.5,
 })
-
-const exampleQuestions = [
-  '公司的报销流程是怎样的？',
-  '如何申请年假和调休？',
-  '最新的产品发布计划是什么？',
-]
 
 const createNewSession = () => {
   const newId = Date.now().toString()
@@ -444,6 +486,7 @@ const sendMessage = async () => {
           use_web: useWeb.value,
           mode: chatMode.value,
           provider: modelProvider.value,
+          module: currentModule.value,
         }),
       })
 
@@ -611,7 +654,18 @@ const resetChatState = () => {
 
 onMounted(() => {
   lastUserId = userStore.user?.id || null
+  loadModules()
   loadSessions()
+
+  // 处理从 Dashboard 跳转来的模块和问题
+  if (route.query.module) {
+    currentModule.value = route.query.module
+  }
+  if (route.query.question) {
+    inputMessage.value = route.query.question
+    // 清空 query 参数
+    router.replace({ query: {} })
+  }
 })
 
 watch(
@@ -887,6 +941,46 @@ watch(
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* 模块切换 */
+.module-selector {
+  display: flex;
+  align-items: center;
+  background: var(--gray-100);
+  border-radius: 20px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.module-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 2px solid transparent;
+  background: transparent;
+  border-radius: 18px;
+  font-size: 13px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.module-tab:hover {
+  color: var(--gray-700);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.module-tab.active {
+  background: #fff;
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.module-tab .el-icon {
+  flex-shrink: 0;
 }
 
 .chat-mode-selector {

@@ -69,6 +69,7 @@ class KnowledgeBaseBase(BaseModel):
     description: Optional[str] = None
     department: Optional[str] = None
     embedding_model: Optional[str] = "qwen3-embedding:0.6b"
+    module: Optional[str] = "general"  # policy / tech / admin / general
 
 
 class KnowledgeBaseCreate(KnowledgeBaseBase):
@@ -80,12 +81,14 @@ class KnowledgeBaseUpdate(BaseModel):
     description: Optional[str] = None
     department: Optional[str] = None
     embedding_model: Optional[str] = None
+    module: Optional[str] = None
 
 
 class KnowledgeBaseResponse(KnowledgeBaseBase):
     id: int
     owner_id: int
     is_personal: Optional[bool] = False
+    is_shared: Optional[bool] = False
     status: bool
     created_at: datetime
     updated_at: datetime
@@ -126,6 +129,7 @@ class ChatMessage(BaseModel):
     use_web: Optional[bool] = False
     mode: Optional[str] = "rag"  # rag, agent, langgraph
     provider: Optional[str] = "api"  # api=DeepSeek, local=Ollama
+    module: Optional[str] = "general"  # policy / tech / admin / general
 
 
 class ChatResponse(BaseModel):

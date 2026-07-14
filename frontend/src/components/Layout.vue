@@ -10,7 +10,7 @@
               <div class="logo-dot"></div>
             </div>
           </div>
-          <span class="logo-text">企业知识助手</span>
+          <span class="logo-text">智汇办公</span>
         </div>
       </div>
 
@@ -133,10 +133,10 @@ const icons = {
 }
 
 const coreMenuItems = [
-  { path: '/', label: '仪表盘', icon: Odometer },
+  { path: '/', label: '工作台', icon: Odometer },
+  { path: '/chat', label: '智能对话', icon: ChatSquare },
   { path: '/knowledge', label: '知识库管理', icon: FolderOpened },
   { path: '/documents', label: '文档管理', icon: Document },
-  { path: '/chat', label: '对话机器人', icon: ChatSquare },
 ]
 
 const allSystemMenuItems = [

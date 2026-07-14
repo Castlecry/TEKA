@@ -4,8 +4,8 @@
     <div class="page-header fade-in-up" style="--delay: 0">
       <div class="header-content">
         <div class="header-text">
-          <h2>欢迎回来，{{ userName }} 👋</h2>
-          <p>智能检索企业知识，高效完成日常任务</p>
+          <h2>欢迎回来，{{ userName }}</h2>
+          <p>智汇办公 AI 智能平台 · 让知识触手可及</p>
         </div>
         <div class="header-decoration">
           <div class="decoration-circle c1"></div>
@@ -15,94 +15,65 @@
       </div>
     </div>
 
-    <!-- 统计卡片 -->
-    <div class="stats-grid">
+    <!-- 模块卡片 -->
+    <div class="module-grid">
       <div
-        v-for="(item, idx) in statCards"
-        :key="idx"
-        class="stat-card fade-in-up"
+        v-for="(mod, idx) in modules"
+        :key="mod.id"
+        class="module-card fade-in-up"
         :style="{ '--delay': idx * 0.1 + 0.1 }"
+        @click="enterModule(mod.id)"
       >
-        <div class="stat-card-inner">
-          <div class="stat-icon" :class="item.color">
-            <el-icon :size="20"><Component :is="item.icon" /></el-icon>
+        <div class="module-card-inner">
+          <div class="module-icon" :style="{ background: mod.color }">
+            <el-icon :size="24"><Component :is="getModuleIcon(mod.icon)" /></el-icon>
           </div>
-          <div class="stat-info">
-            <div class="stat-value">
-              <span class="stat-number">{{ animatedStats[item.key] }}</span>
-            </div>
-            <div class="stat-label">{{ item.label }}</div>
+          <div class="module-info">
+            <div class="module-name">{{ mod.name }}</div>
+            <div class="module-desc">{{ mod.description }}</div>
           </div>
         </div>
-        <div class="stat-card-bg" :class="item.color"></div>
+        <!-- 示例问题 -->
+        <div class="module-questions">
+          <div class="questions-label">试试这样问：</div>
+          <div class="questions-list">
+            <span
+              v-for="(q, qi) in mod.example_questions"
+              :key="qi"
+              class="question-tag"
+              @click.stop="askQuestion(mod.id, q)"
+            >
+              {{ q }}
+            </span>
+          </div>
+        </div>
+        <div class="module-card-bg" :style="{ background: mod.color }"></div>
       </div>
     </div>
 
-    <!-- 快捷操作 + 快速开始 -->
-    <div class="content-grid">
-      <div class="section-card fade-in-up" style="--delay: 0.5">
-        <div class="section-header">
-          <h3>
-            <el-icon :size="18" class="section-icon"><Component :is="icons.Lightning" /></el-icon>
-            快捷操作
-          </h3>
-        </div>
-        <div class="action-grid">
-          <div
-            v-for="(action, idx) in quickActions"
-            :key="idx"
-            class="action-card"
-            @click="action.handler"
-          >
-            <div class="action-icon" :style="{ background: action.gradient }">
-              <el-icon :size="20"><Component :is="action.icon" /></el-icon>
-            </div>
-            <div class="action-text">
-              <div class="action-title">{{ action.title }}</div>
-              <div class="action-desc">{{ action.desc }}</div>
-            </div>
-            <div class="action-arrow">
-              <el-icon :size="14"><Component :is="icons.ArrowRight" /></el-icon>
-            </div>
-          </div>
-        </div>
+    <!-- 统计信息 -->
+    <div class="stats-row fade-in-up" style="--delay: 0.5">
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.knowledgeBases }}</span>
+        <span class="stat-label">知识库</span>
       </div>
-
-      <div class="section-card fade-in-up" style="--delay: 0.6">
-        <div class="section-header">
-          <h3>
-            <el-icon :size="16" class="section-icon"><Component :is="icons.Promotion" /></el-icon>
-            快速开始
-          </h3>
-        </div>
-        <div class="quick-start-list">
-          <div
-            v-for="(item, idx) in quickStartItems"
-            :key="idx"
-            class="quick-start-item"
-            @click="item.handler"
-          >
-            <div class="qs-number">{{ String(idx + 1).padStart(2, '0') }}</div>
-            <div class="qs-content">
-              <div class="qs-title">{{ item.title }}</div>
-              <div class="qs-desc">{{ item.desc }}</div>
-            </div>
-            <div class="qs-arrow">
-              <el-icon :size="14"><Component :is="icons.Right" /></el-icon>
-            </div>
-          </div>
-        </div>
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.documents }}</span>
+        <span class="stat-label">文档</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.todayConversations }}</span>
+        <span class="stat-label">今日对话</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  FolderOpened, Document, ChatLineRound, UserFilled,
-  Plus, Upload, Lightning, Promotion, ArrowRight, Right
+  Document, Monitor, OfficeBuilding, ChatLineRound
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
@@ -110,7 +81,12 @@ import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const userStore = useUserStore()
-const icons = { FolderOpened, Document, ChatLineRound, UserFilled, Plus, Upload, Lightning, Promotion, ArrowRight, Right }
+
+const modules = ref([])
+
+const iconMap = { Document, Monitor, OfficeBuilding, ChatLineRound }
+
+const getModuleIcon = (iconName) => iconMap[iconName] || ChatLineRound
 
 const userName = computed(() => {
   return userStore.user?.username || userStore.user?.name || '用户'
@@ -120,84 +96,23 @@ const stats = ref({
   knowledgeBases: 0,
   documents: 0,
   todayConversations: 0,
-  activeUsers: 0,
 })
 
-const animatedStats = reactive({
-  knowledgeBases: 0,
-  documents: 0,
-  todayConversations: 0,
-  activeUsers: 0,
-})
+const enterModule = (moduleId) => {
+  router.push({ path: '/chat', query: { module: moduleId } })
+}
 
-const statCards = [
-  { key: 'knowledgeBases', label: '知识库数量', icon: FolderOpened, color: 'blue' },
-  { key: 'documents', label: '文档数量', icon: Document, color: 'green' },
-  { key: 'todayConversations', label: '今日对话', icon: ChatLineRound, color: 'purple' },
-  { key: 'activeUsers', label: '活跃用户', icon: UserFilled, color: 'orange' },
-]
+const askQuestion = (moduleId, question) => {
+  router.push({ path: '/chat', query: { module: moduleId, question } })
+}
 
-const quickActions = [
-  {
-    title: '创建知识库',
-    desc: '新建企业知识库，组织知识内容',
-    icon: FolderOpened,
-    gradient: 'linear-gradient(135deg, #4f6ef7, #6b8cff)',
-    handler: () => router.push('/knowledge'),
-  },
-  {
-    title: '上传文档',
-    desc: '导入文档到知识库中',
-    icon: Upload,
-    gradient: 'linear-gradient(135deg, #22c55e, #4ade80)',
-    handler: () => router.push('/documents'),
-  },
-  {
-    title: '开始对话',
-    desc: '与 AI 助手智能对话',
-    icon: ChatLineRound,
-    gradient: 'linear-gradient(135deg, #8b5cf6, #a78bfa)',
-    handler: () => router.push('/chat'),
-  },
-]
-
-const quickStartItems = [
-  {
-    title: '配置知识库',
-    desc: '创建并配置您的第一个知识库',
-    handler: () => router.push('/knowledge'),
-  },
-  {
-    title: '导入文档数据',
-    desc: '批量上传文档，构建企业知识体系',
-    handler: () => router.push('/documents'),
-  },
-  {
-    title: '发起智能对话',
-    desc: '基于知识库进行智能问答对话',
-    handler: () => router.push('/chat'),
-  },
-]
-
-// 数字动画
-const animateNumber = (key, target) => {
-  const duration = 1200
-  const start = animatedStats[key]
-  const diff = target - start
-  if (diff === 0) return
-  const startTime = performance.now()
-
-  const step = (currentTime) => {
-    const elapsed = currentTime - startTime
-    const progress = Math.min(elapsed / duration, 1)
-    // easeOutExpo
-    const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress)
-    animatedStats[key] = Math.round(start + diff * eased)
-    if (progress < 1) {
-      requestAnimationFrame(step)
-    }
+const loadModules = async () => {
+  try {
+    const data = await request.get('/knowledge-bases/modules')
+    modules.value = data
+  } catch (error) {
+    ElMessage.error('加载模块列表失败')
   }
-  requestAnimationFrame(step)
 }
 
 const loadStats = async () => {
@@ -211,26 +126,17 @@ const loadStats = async () => {
     stats.value.knowledgeBases = knowledgeBases.length || 0
     stats.value.documents = documents.length || 0
 
-    // 计算今日对话数
     const today = new Date().toISOString().split('T')[0]
     stats.value.todayConversations = sessions.filter(s =>
       s.created_at && s.created_at.startsWith(today)
     ).length || 0
-
-    // 计算活跃用户数（有对话记录的用户）
-    const uniqueUsers = new Set(sessions.map(s => s.user_id))
-    stats.value.activeUsers = uniqueUsers.size || 0
-
-    // 触发动画
-    Object.keys(stats.value).forEach(key => {
-      animateNumber(key, stats.value[key])
-    })
   } catch (error) {
-    ElMessage.error('加载统计数据失败')
+    // 静默失败
   }
 }
 
 onMounted(() => {
+  loadModules()
   loadStats()
 })
 </script>
@@ -241,7 +147,6 @@ onMounted(() => {
   min-height: 100%;
 }
 
-/* 入场动画 */
 .fade-in-up {
   opacity: 0;
   transform: translateY(24px);
@@ -320,271 +225,150 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* 统计卡片 */
-.stats-grid {
+/* 模块卡片 */
+.module-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   margin-bottom: 28px;
 }
 
-.stat-card {
+.module-card {
   position: relative;
   border-radius: var(--radius-md);
   background: #fff;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition: var(--transition);
-  cursor: default;
+  cursor: pointer;
+  border: 1px solid var(--gray-200);
 }
 
-.stat-card:hover {
+.module-card:hover {
   transform: translateY(-6px);
   box-shadow: var(--shadow-lg);
+  border-color: var(--primary-light);
 }
 
-.stat-card-inner {
+.module-card-inner {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 22px 20px;
+  padding: 22px 20px 16px;
   position: relative;
   z-index: 1;
 }
 
-.stat-card-bg {
+.module-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+.module-info {
+  flex: 1;
+}
+
+.module-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--gray-800);
+}
+
+.module-desc {
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.module-questions {
+  padding: 0 20px 18px;
+  position: relative;
+  z-index: 1;
+}
+
+.questions-label {
+  font-size: 11px;
+  color: var(--gray-400);
+  margin-bottom: 8px;
+}
+
+.questions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.question-tag {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.question-tag:hover {
+  background: var(--primary-bg);
+  color: var(--primary);
+}
+
+.module-card-bg {
   position: absolute;
   right: -20px;
   bottom: -20px;
   width: 100px;
   height: 100px;
   border-radius: 50%;
-  opacity: 0.06;
+  opacity: 0.05;
   transition: var(--transition);
 }
 
-.stat-card:hover .stat-card-bg {
+.module-card:hover .module-card-bg {
   transform: scale(1.5);
-  opacity: 0.1;
+  opacity: 0.08;
 }
 
-.stat-card-bg.blue { background: var(--primary); }
-.stat-card-bg.green { background: var(--success); }
-.stat-card-bg.purple { background: #8b5cf6; }
-.stat-card-bg.orange { background: var(--warning); }
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
+/* 统计行 */
+.stats-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  color: #fff;
-  flex-shrink: 0;
+  gap: 32px;
+  padding: 20px 28px;
+  background: #fff;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
-.stat-icon.blue {
-  background: linear-gradient(135deg, #4f6ef7, #6b8cff);
+.stat-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
-.stat-icon.green {
-  background: linear-gradient(135deg, #22c55e, #4ade80);
-}
-
-.stat-icon.purple {
-  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
-}
-
-.stat-icon.orange {
-  background: linear-gradient(135deg, #f59e0b, #fbbf24);
-}
-
-.stat-info {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 30px;
+.stat-number {
+  font-size: 28px;
   font-weight: 800;
   color: var(--gray-800);
-  line-height: 1.2;
 }
 
 .stat-label {
   font-size: 13px;
   color: var(--gray-500);
-  margin-top: 4px;
-}
-
-/* 内容区域 */
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-.section-card {
-  background: #fff;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  padding: 24px;
-}
-
-.section-header {
-  margin-bottom: 20px;
-}
-
-.section-header h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--gray-800);
-  margin: 0;
-}
-
-.section-icon {
-  font-size: 16px;
-  color: var(--primary);
-}
-
-/* 快捷操作卡片 */
-.action-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.action-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--gray-200);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.action-card:hover {
-  border-color: var(--primary-light);
-  background: var(--primary-bg);
-  transform: translateX(4px);
-}
-
-.action-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.action-text {
-  flex: 1;
-}
-
-.action-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gray-800);
-}
-
-.action-desc {
-  font-size: 12px;
-  color: var(--gray-500);
-  margin-top: 2px;
-}
-
-.action-arrow {
-  font-size: 16px;
-  color: var(--gray-400);
-  transition: var(--transition);
-}
-
-.action-card:hover .action-arrow {
-  color: var(--primary);
-  transform: translateX(4px);
-}
-
-/* 快速开始 */
-.quick-start-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.quick-start-item {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: var(--transition);
-  border: 1px solid transparent;
-}
-
-.quick-start-item:hover {
-  background: var(--gray-50);
-  border-color: var(--gray-200);
-}
-
-.qs-number {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--gray-200);
-  width: 32px;
-  text-align: center;
-  flex-shrink: 0;
-  transition: var(--transition);
-}
-
-.quick-start-item:hover .qs-number {
-  color: var(--primary-light);
-}
-
-.qs-content {
-  flex: 1;
-}
-
-.qs-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gray-800);
-}
-
-.qs-desc {
-  font-size: 12px;
-  color: var(--gray-500);
-  margin-top: 2px;
-}
-
-.qs-arrow {
-  font-size: 16px;
-  color: var(--gray-400);
-  transition: var(--transition);
-}
-
-.quick-start-item:hover .qs-arrow {
-  color: var(--primary);
-  transform: translateX(4px);
 }
 
 /* 响应式 */
 @media (max-width: 1200px) {
-  .stats-grid {
+  .module-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-  .content-grid {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -592,8 +376,12 @@ onMounted(() => {
   .dashboard {
     padding: 16px;
   }
-  .stats-grid {
+  .module-grid {
     grid-template-columns: 1fr;
+  }
+  .stats-row {
+    flex-wrap: wrap;
+    gap: 20px;
   }
 }
 </style>

@@ -126,6 +126,7 @@ async def send_message(
 async def send_message_stream(
     message: schemas.ChatMessage,
     current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """流式聊天（HTTP SSE）"""
     allowed, remaining = _redis_cache.check_rate_limit(current_user.id)
@@ -139,6 +140,17 @@ async def send_message_stream(
 
     _user_id = current_user.id
     _kb_ids = message.knowledge_base_ids or []
+
+    # 如果用户没有指定知识库，根据模块自动选择共享知识库
+    if not _kb_ids and message.module:
+        module_kbs = db.query(models.KnowledgeBase).filter(
+            models.KnowledgeBase.module == message.module,
+            models.KnowledgeBase.is_shared == True,
+            models.KnowledgeBase.status == True,
+        ).all()
+        if module_kbs:
+            _kb_ids = [kb.id for kb in module_kbs]
+
     _full_answer = []
     _attachments: list[dict] = []
 

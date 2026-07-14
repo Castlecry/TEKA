@@ -55,6 +55,8 @@ class KnowledgeBase(Base):
     owner_id = Column(Integer, ForeignKey("users.id"))
     embedding_model = Column(String(100), default="qwen3-embedding:0.6b")
     is_personal = Column(Boolean, default=False)  # 是否为个人知识库
+    module = Column(String(50), default="general")  # 所属模块: policy / tech / admin / general
+    is_shared = Column(Boolean, default=False)  # 是否为共享知识库（管理员创建，所有用户可见）
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
