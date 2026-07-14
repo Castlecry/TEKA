@@ -163,7 +163,12 @@ async def send_message_stream(
 
         try:
             if message.mode == "agent" and provider != "local":
-                result = agent_with_tools(query=message.message, session_id=scoped_id)
+                # Agent 模式支持流式：传入 on_token 让 LLM token 实时推送到队列
+                result = agent_with_tools(
+                    query=message.message,
+                    session_id=scoped_id,
+                    stream_callback=on_token,
+                )
                 if isinstance(result, dict):
                     answer = result.get("answer", "")
                     _attachments.extend(result.get("attachments", []))
@@ -176,14 +181,22 @@ async def send_message_stream(
 
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
-                _full_answer.append(answer)
-                _queue.put_nowait(answer)
+                if not _full_answer:
+                    # agent_with_tools 没传 stream_callback 时，answer 一次性追加
+                    _full_answer.append(answer)
+                    _queue.put_nowait(answer)
             elif message.mode == "langgraph" and provider != "local":
-                answer = run_agent(query=message.message, session_id=scoped_id)
+                # LangGraph 模式也支持流式
+                answer = run_agent(
+                    query=message.message,
+                    session_id=scoped_id,
+                    stream_callback=on_token,
+                )
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
-                _full_answer.append(answer)
-                _queue.put_nowait(answer)
+                if not _full_answer:
+                    _full_answer.append(answer)
+                    _queue.put_nowait(answer)
             else:
                 await asyncio.to_thread(
                     _rag_chain.rag_query,
@@ -231,7 +244,7 @@ async def send_message_stream(
         finally:
             db.close()
 
-    _queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _is_stream_done = asyncio.Event()
 
     asyncio.create_task(run_rag())
