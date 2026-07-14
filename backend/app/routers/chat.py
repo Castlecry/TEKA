@@ -155,48 +155,50 @@ async def send_message_stream(
     _full_answer = []
     _attachments: list[dict] = []
 
+    # 捕获当前事件循环引用，用于跨线程安全地往队列写数据
+    _loop = asyncio.get_running_loop()
+
     async def run_rag():
         """在后台线程中执行 RAG 查询"""
         def on_token(token: str):
             _full_answer.append(token)
-            _queue.put_nowait(token)
+            # 跨线程安全：使用 call_soon_threadsafe 把 put_nowait 调度到事件循环
+            try:
+                _loop.call_soon_threadsafe(_queue.put_nowait, token)
+            except Exception:
+                pass
 
         try:
             if message.mode == "agent" and provider != "local":
-                # Agent 模式支持流式：传入 on_token 让 LLM token 实时推送到队列
-                result = agent_with_tools(
-                    query=message.message,
-                    session_id=scoped_id,
-                    stream_callback=on_token,
+                # Agent 模式：用 to_thread 放到线程池执行，避免阻塞事件循环
+                result = await asyncio.to_thread(
+                    agent_with_tools,
+                    message.message, scoped_id, on_token,
                 )
                 if isinstance(result, dict):
                     answer = result.get("answer", "")
                     _attachments.extend(result.get("attachments", []))
                 else:
-                    # 兼容旧的纯字符串返回
                     answer = str(result)
 
-                # 兜底：检测 LLM 是否"幻觉"了文档生成（提到了文档/链接但未调工具）
                 _try_rescue_document_hallucination(answer, _attachments, message.message)
 
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 if not _full_answer:
-                    # agent_with_tools 没传 stream_callback 时，answer 一次性追加
                     _full_answer.append(answer)
-                    _queue.put_nowait(answer)
+                    _loop.call_soon_threadsafe(_queue.put_nowait, answer)
             elif message.mode == "langgraph" and provider != "local":
-                # LangGraph 模式也支持流式
-                answer = run_agent(
-                    query=message.message,
-                    session_id=scoped_id,
-                    stream_callback=on_token,
+                # LangGraph 模式：同样 to_thread
+                answer = await asyncio.to_thread(
+                    run_agent,
+                    message.message, scoped_id, on_token,
                 )
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 if not _full_answer:
                     _full_answer.append(answer)
-                    _queue.put_nowait(answer)
+                    _loop.call_soon_threadsafe(_queue.put_nowait, answer)
             else:
                 await asyncio.to_thread(
                     _rag_chain.rag_query,
@@ -209,10 +211,14 @@ async def send_message_stream(
                     provider=provider,
                 )
         except Exception as e:
-            _queue.put_nowait(f"__ERROR__:{str(e)}")
+            try:
+                _loop.call_soon_threadsafe(_queue.put_nowait, f"__ERROR__:{str(e)}")
+            except Exception:
+                pass
             print(f"[Stream] RAG 查询异常: {e}")
         finally:
-            _queue.put_nowait("__DONE__")
+            # 同样用 call_soon_threadsafe，保证所有 token 都已入队后才发出 __DONE__
+            _loop.call_soon_threadsafe(_queue.put_nowait, "__DONE__")
 
     async def save_log():
         """保存对话日志"""
