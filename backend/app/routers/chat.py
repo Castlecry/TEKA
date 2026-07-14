@@ -498,15 +498,22 @@ async def submit_feedback(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """提交消息反馈（点赞/点踩 + 修正意见）"""
-    if req.rating not in (1, -1):
-        raise HTTPException(status_code=400, detail="rating 只能是 1 或 -1")
+    """提交消息反馈（点赞/点踩 + 修正意见，rating=0 表示取消反馈）"""
+    if req.rating not in (-1, 0, 1):
+        raise HTTPException(status_code=400, detail="rating 只能是 -1、0 或 1")
 
     existing = db.query(models.Feedback).filter(
         models.Feedback.conversation_id == req.conversation_id,
         models.Feedback.message_id == req.message_id,
         models.Feedback.user_id == current_user.id,
     ).first()
+
+    # rating = 0 表示取消/删除反馈
+    if req.rating == 0:
+        if existing:
+            db.delete(existing)
+            db.commit()
+        return {"message": "反馈已取消", "rating": 0}
 
     if existing:
         existing.rating = req.rating

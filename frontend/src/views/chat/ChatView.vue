@@ -201,7 +201,7 @@
           <div class="toolbar-left">
             <button class="toolbar-btn" :class="{ active: useWeb }" @click="useWeb = !useWeb">
               <el-icon :size="16"><Connection /></el-icon>
-              <span>{{ useWeb ? '联网搜索' : '智能搜索' }}</span>
+              <span>{{ useWeb ? '联网搜索' : '本地检索' }}</span>
               <div v-if="useWeb" class="toolbar-dot"></div>
             </button>
             <button class="toolbar-btn" :class="{ active: modelProvider === 'local' }" @click="modelProvider = modelProvider === 'api' ? 'local' : 'api'">

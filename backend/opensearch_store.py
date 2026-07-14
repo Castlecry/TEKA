@@ -97,29 +97,62 @@ def add_documents(chunks: list[str], source: str = "unknown"):
 
 
 def search(query: str, top_k: int = TOP_K) -> list[dict]:
-    """向量检索"""
+    """混合检索：向量相似度 + BM25 关键词匹配，取并集后重排"""
     ensure_index()
     vec = embed_text(query)
 
-    body = {
-        "size": top_k,
+    # 1. 向量检索（多取一些候选）
+    vector_k = max(top_k * 3, 10)
+    vector_body = {
+        "size": vector_k,
         "query": {
             "knn": {
                 "embedding": {
                     "vector": vec,
-                    "k": top_k,
+                    "k": vector_k,
                 }
             }
         },
     }
+    vector_resp = _client.search(index=OPENSEARCH_INDEX, body=vector_body)
+    vector_hits = {h["_id"]: h for h in vector_resp["hits"]["hits"]}
 
-    resp = _client.search(index=OPENSEARCH_INDEX, body=body)
+    # 2. BM25 关键词检索（中文分词后用 multi_match）
+    bm25_body = {
+        "size": vector_k,
+        "query": {
+            "multi_match": {
+                "query": query,
+                "fields": ["content"],
+                "type": "best_fields",
+                "minimum_should_match": "30%",
+            }
+        },
+    }
+    try:
+        bm25_resp = _client.search(index=OPENSEARCH_INDEX, body=bm25_body)
+        bm25_hits = {h["_id"]: h for h in bm25_resp["hits"]["hits"]}
+    except Exception:
+        bm25_hits = {}
+
+    # 3. 合并结果（RRF 倒数排名融合）
+    all_ids = set(vector_hits.keys()) | set(bm25_hits.keys())
+    scored = []
+    for doc_id in all_ids:
+        v_rank = (list(vector_hits.keys()).index(doc_id) + 1) if doc_id in vector_hits else 9999
+        b_rank = (list(bm25_hits.keys()).index(doc_id) + 1) if doc_id in bm25_hits else 9999
+        rrf_score = 1.0 / (60 + v_rank) + 1.0 / (60 + b_rank)
+        hit = vector_hits.get(doc_id) or bm25_hits[doc_id]
+        scored.append((rrf_score, hit))
+
+    # 4. 按 RRF 分数排序，取 top_k
+    scored.sort(key=lambda x: x[0], reverse=True)
     results = []
-    for hit in resp["hits"]["hits"]:
+    for rrf_score, hit in scored[:top_k]:
         results.append({
             "content": hit["_source"]["content"],
             "source": hit["_source"].get("source", ""),
-            "score": hit["_score"],
+            "score": rrf_score,
         })
     return results
 
