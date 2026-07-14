@@ -14,7 +14,9 @@
       "Bash(git commit -m 'feat: 文档自动处理管线 + 预览 + 重新生成向量 *)",
       "Bash(curl -s http://127.0.0.1:8000/docs)",
       "Bash(curl -s -X POST http://127.0.0.1:8000/file_parse -F files=@c:/Users/cc/OneDrive/Desktop/program/backend/knowledge_base/llm_basics.md -F parse_method=auto -F return_md=true)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('MinerU OK' if 'results' in d else f'FAIL: {str\\(d\\)[:200]}'\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('MinerU OK' if 'results' in d else f'FAIL: {str\\(d\\)[:200]}'\\)\")",
+      "Bash(git commit -m 'fix: SSE流式直连后端 + 思考过程流式展示 *)",
+      "Bash(git commit -m 'fix: 彻底解决流式输出——每个token后yield到浏览器重绘 *)"
     ]
   }
 }

@@ -655,26 +655,26 @@ const sendMessage = async () => {
             try {
               const parsed = JSON.parse(data)
               if (parsed.type === 'meta' && parsed.conversation_id) {
-                // 后端确认了会话 ID，同步到前端
                 currentSessionId.value = parsed.conversation_id
                 localStorage.setItem('currentSessionId', parsed.conversation_id)
               } else if (parsed.type === 'reasoning' && parsed.text) {
-                // 推理模型的思考过程（流式）—— 折叠区显示
                 if (reasoningStartTime === 0) reasoningStartTime = Date.now()
                 reasoningText += parsed.text
                 assistantMsg.reasoning = reasoningText
                 assistantMsg.reasoningDuration = Math.floor((Date.now() - reasoningStartTime) / 1000)
+                // 逐字渲染：yield 到浏览器重绘
                 scrollToBottom()
+                await new Promise(r => setTimeout(r, 0))
               } else if (parsed.type === 'content' && parsed.text) {
-                // 最终回答（流式）
                 fullAnswer += parsed.text
                 assistantMsg.content = fullAnswer
                 scrollToBottom()
+                await new Promise(r => setTimeout(r, 0))
               } else if (parsed.type === 'chunk' && parsed.content) {
-                // 兼容旧格式
                 fullAnswer += parsed.content
                 assistantMsg.content = fullAnswer
                 scrollToBottom()
+                await new Promise(r => setTimeout(r, 0))
               } else if (parsed.type === 'attachments' && Array.isArray(parsed.items) && parsed.items.length > 0) {
                 assistantMsg.attachments = parsed.items
               } else if (parsed.type === 'error') {
