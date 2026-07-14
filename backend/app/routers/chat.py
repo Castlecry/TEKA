@@ -617,3 +617,77 @@ async def get_feedback(
     if not fb:
         return {"rating": 0, "correction": ""}
     return {"rating": fb.rating, "correction": fb.correction or ""}
+
+
+# ========== 对话收藏 ==========
+
+class FavoriteRequest(BaseModel):
+    conversation_id: str
+    title: Optional[str] = None
+
+
+@router.post("/favorite")
+async def toggle_favorite(
+    req: FavoriteRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """收藏/取消收藏对话（切换）"""
+    existing = db.query(models.ConversationFavorite).filter(
+        models.ConversationFavorite.conversation_id == req.conversation_id,
+        models.ConversationFavorite.user_id == current_user.id,
+    ).first()
+
+    if existing:
+        # 已收藏 → 取消收藏
+        db.delete(existing)
+        db.commit()
+        return {"favorited": False, "message": "已取消收藏"}
+
+    # 未收藏 → 添加收藏
+    fav = models.ConversationFavorite(
+        conversation_id=req.conversation_id,
+        user_id=current_user.id,
+        title=req.title,
+    )
+    db.add(fav)
+    db.commit()
+    db.refresh(fav)
+    return {"favorited": True, "id": fav.id, "message": "已收藏"}
+
+
+@router.get("/favorites")
+async def get_favorites(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """获取当前用户的收藏列表"""
+    favorites = (
+        db.query(models.ConversationFavorite)
+        .filter(models.ConversationFavorite.user_id == current_user.id)
+        .order_by(models.ConversationFavorite.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": f.id,
+            "conversation_id": f.conversation_id,
+            "title": f.title,
+            "created_at": f.created_at.isoformat() if f.created_at else "",
+        }
+        for f in favorites
+    ]
+
+
+@router.get("/favorites/check/{conversation_id}")
+async def check_favorite(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """检查某个对话是否已收藏"""
+    fav = db.query(models.ConversationFavorite).filter(
+        models.ConversationFavorite.conversation_id == conversation_id,
+        models.ConversationFavorite.user_id == current_user.id,
+    ).first()
+    return {"favorited": fav is not None}

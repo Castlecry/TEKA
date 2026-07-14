@@ -172,7 +172,7 @@
                 <button class="action-btn" title="重新生成" :disabled="loading" @click="regenerateMessage(index)">
                   <el-icon :size="14"><RefreshRight /></el-icon>
                 </button>
-                <button class="action-btn" :class="{ active: message.feedback === 1 }" title="有帮助" @click="submitFeedback(index, 1)">
+                <button class="action-btn" :class="{ active: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏对话'" @click="toggleFavorite">
                   <el-icon :size="14"><Star /></el-icon>
                 </button>
                 <button class="action-btn" :class="{ active: message.feedback === -1 }" title="没帮助" @click="submitFeedback(index, -1)">
@@ -334,6 +334,7 @@ const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
 const copiedIndex = ref(-1)
+const isFavorited = ref(false)
 let lastUserId = userStore.user?.id || null
 
 // 模块相关
@@ -382,11 +383,13 @@ const createNewSession = () => {
   const newId = Date.now().toString()
   currentSessionId.value = newId
   messages.value = []
+  isFavorited.value = false
 }
 
 const switchSession = (sessionId) => {
   currentSessionId.value = sessionId
   loadHistory(sessionId)
+  checkFavoriteStatus(sessionId)
 }
 
 const deleteSession = async (sessionId) => {
@@ -421,6 +424,37 @@ const loadHistory = async (sessionId) => {
     scrollToBottom()
   } catch (e) {
     console.error('加载对话历史失败', e)
+  }
+}
+
+// ========== 收藏功能 ==========
+
+const checkFavoriteStatus = async (conversationId) => {
+  try {
+    const res = await request.get(`/chat/favorites/check/${conversationId}`)
+    isFavorited.value = res?.favorited || false
+  } catch (e) {
+    console.error('检查收藏状态失败', e)
+  }
+}
+
+const toggleFavorite = async () => {
+  if (!currentSessionId.value || currentSessionId.value === 'default') {
+    ElMessage.warning('请先进行对话再收藏')
+    return
+  }
+
+  try {
+    const title = messages.value.find(m => m.role === 'user')?.content?.slice(0, 50) || '未命名对话'
+    const res = await request.post('/chat/favorite', {
+      conversation_id: currentSessionId.value,
+      title,
+    })
+    isFavorited.value = res?.favorited || false
+    ElMessage.success(res?.message || (isFavorited.value ? '已收藏' : '已取消收藏'))
+  } catch (e) {
+    console.error('收藏操作失败', e)
+    ElMessage.error('操作失败')
   }
 }
 
@@ -539,6 +573,8 @@ const sendMessage = async () => {
     }
 
     loadSessions()
+    // 检查收藏状态
+    checkFavoriteStatus(currentSessionId.value)
   } catch (e) {
     console.error('发送失败', e)
     messages.value.push({
@@ -663,9 +699,15 @@ onMounted(() => {
   }
   if (route.query.question) {
     inputMessage.value = route.query.question
-    // 清空 query 参数
-    router.replace({ query: {} })
   }
+  // 处理从收藏页跳转来的会话
+  if (route.query.session) {
+    currentSessionId.value = route.query.session
+    loadHistory(route.query.session)
+    checkFavoriteStatus(route.query.session)
+  }
+  // 清空 query 参数
+  router.replace({ query: {} })
 })
 
 watch(

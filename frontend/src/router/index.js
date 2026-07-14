@@ -40,6 +40,11 @@ const routes = [
         component: () => import('@/views/chat/ChatView.vue'),
       },
       {
+        path: 'favorites',
+        name: 'Favorites',
+        component: () => import('@/views/Favorites.vue'),
+      },
+      {
         path: 'system/users',
         name: 'UserManage',
         component: () => import('@/views/system/UserManage.vue'),

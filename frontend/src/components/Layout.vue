@@ -111,6 +111,7 @@ import {
   User,
   ArrowDown,
   Bell,
+  Star,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
@@ -130,11 +131,13 @@ const icons = {
   User,
   ArrowDown,
   Bell,
+  Star,
 }
 
 const coreMenuItems = [
   { path: '/', label: '工作台', icon: Odometer },
   { path: '/chat', label: '智能对话', icon: ChatSquare },
+  { path: '/favorites', label: '我的收藏', icon: Star },
   { path: '/knowledge', label: '知识库管理', icon: FolderOpened },
   { path: '/documents', label: '文档管理', icon: Document },
 ]

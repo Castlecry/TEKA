@@ -121,3 +121,15 @@ class Feedback(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+
+class ConversationFavorite(Base):
+    __tablename__ = "conversation_favorites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(String(50), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(200))  # 收藏时的对话标题（第一条用户消息）
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
