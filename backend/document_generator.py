@@ -397,6 +397,15 @@ def _strip_markdown_for_pdf(text: str) -> str:
 
 def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
     """将 Markdown 文本转换为 PDF 文档，返回文件路径"""
+    try:
+        return _markdown_to_pdf_impl(markdown_text, title)
+    except Exception as e:
+        print(f"[DocGen] PDF 生成失败: {type(e).__name__}: {e}")
+        raise
+
+
+def _markdown_to_pdf_impl(markdown_text: str, title: str = "文档") -> str:
+    """PDF 生成实现"""
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(left=15, top=15, right=15)
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -405,11 +414,13 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
 
     # 加载中文字体
     font_path = _find_chinese_font()
+    use_chinese = False
     if font_path:
         try:
             pdf.add_font("zh", "", font_path)
             pdf.add_font("zh", "B", font_path)
             pdf.set_font("zh", size=10)
+            use_chinese = True
         except Exception as e:
             print(f"[DocGen] 中文字体加载失败: {e}，fallback 到 Helvetica")
             pdf.set_font("Helvetica", size=10)
@@ -418,12 +429,27 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
         print("[DocGen] 未找到中文字体，使用 Helvetica（中文可能显示为方块）")
         pdf.set_font("Helvetica", size=10)
 
+    def _set_font(style="", size=10):
+        """统一设置字体（中文优先）"""
+        if use_chinese:
+            pdf.set_font("zh", style, size)
+        else:
+            # Helvetica 不支持中文，超长字符可能溢出，做基础防护
+            if style == "B":
+                pdf.set_font("Helvetica", "B", size)
+            else:
+                pdf.set_font("Helvetica", size)
+
+    def _safe_text(text: str) -> str:
+        """PDF 安全的文本处理：避免 latin-1 编码错误"""
+        if use_chinese:
+            return text
+        # 不支持中文时，移除中文字符避免编码错误
+        return re.sub(r"[^\x00-\xff]+", "", text)
+
     # 标题
-    if font_path:
-        pdf.set_font("zh", "B", 18)
-    else:
-        pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(page_width, 12, _strip_markdown_for_pdf(title), ln=1, align="C")
+    _set_font("B", 18)
+    pdf.cell(page_width, 12, _safe_text(_strip_markdown_for_pdf(title)), ln=1, align="C")
     pdf.ln(4)
 
     # 分隔线
@@ -445,7 +471,7 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
         # 代码块开始/结束
         if stripped.startswith("```"):
             in_code_block = not in_code_block
-            if font_path:
+            if use_chinese:
                 pdf.set_font("zh", size=9)
             else:
                 pdf.set_font("Courier", size=9)
@@ -455,39 +481,32 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
 
         if in_code_block:
             # 代码行
-            pdf.multi_cell(page_width, 4.5, line, fill=True)
+            pdf.multi_cell(page_width, 4.5, _safe_text(line), fill=True)
             continue
 
         # 恢复默认颜色和字体
         pdf.set_text_color(0, 0, 0)
-        if font_path:
-            pdf.set_font("zh", size=10)
-        else:
-            pdf.set_font("Helvetica", size=10)
+        _set_font("", 10)
 
         # 标题层级
         if stripped.startswith("#### "):
-            if font_path: pdf.set_font("zh", "B", 11)
-            else: pdf.set_font("Helvetica", "B", 11)
-            pdf.multi_cell(page_width, 6, "  " + stripped[5:])
+            _set_font("B", 11)
+            pdf.multi_cell(page_width, 6, "  " + _safe_text(stripped[5:]))
             pdf.ln(1)
             continue
         if stripped.startswith("### "):
-            if font_path: pdf.set_font("zh", "B", 12)
-            else: pdf.set_font("Helvetica", "B", 12)
-            pdf.multi_cell(page_width, 6.5, "  " + stripped[4:])
+            _set_font("B", 12)
+            pdf.multi_cell(page_width, 6.5, "  " + _safe_text(stripped[4:]))
             pdf.ln(1)
             continue
         if stripped.startswith("## "):
-            if font_path: pdf.set_font("zh", "B", 14)
-            else: pdf.set_font("Helvetica", "B", 14)
-            pdf.multi_cell(page_width, 8, stripped[3:])
+            _set_font("B", 14)
+            pdf.multi_cell(page_width, 8, _safe_text(stripped[3:]))
             pdf.ln(2)
             continue
         if stripped.startswith("# "):
-            if font_path: pdf.set_font("zh", "B", 16)
-            else: pdf.set_font("Helvetica", "B", 16)
-            pdf.multi_cell(page_width, 9, stripped[2:])
+            _set_font("B", 16)
+            pdf.multi_cell(page_width, 9, _safe_text(stripped[2:]))
             pdf.ln(2)
             continue
 
@@ -495,11 +514,8 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
         if stripped.startswith(">"):
             pdf.set_text_color(107, 114, 128)
             text = re.sub(r"^>\s*", "", stripped)
-            if font_path:
-                pdf.set_font("zh", size=9)
-            else:
-                pdf.set_font("Helvetica", "I", 9)
-            pdf.multi_cell(page_width, 5.5, "│ " + text)
+            _set_font("", 9)
+            pdf.multi_cell(page_width, 5.5, "│ " + _safe_text(text))
             pdf.set_text_color(0, 0, 0)
             continue
 
@@ -507,14 +523,14 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
         m = re.match(r"^[\-\*]\s+(.+)", stripped)
         if m:
             text = m.group(1)
-            pdf.multi_cell(page_width, 5.5, "  • " + text)
+            pdf.multi_cell(page_width, 5.5, "  • " + _safe_text(text))
             continue
 
         # 有序列表
         m = re.match(r"^(\d+)\.\s+(.+)", stripped)
         if m:
             text = m.group(2)
-            pdf.multi_cell(page_width, 5.5, f"  {m.group(1)}. {text}")
+            pdf.multi_cell(page_width, 5.5, f"  {m.group(1)}. " + _safe_text(text))
             continue
 
         # 分隔线
@@ -525,7 +541,7 @@ def markdown_to_pdf(markdown_text: str, title: str = "文档") -> str:
             continue
 
         # 普通段落
-        pdf.multi_cell(page_width, 5.5, stripped)
+        pdf.multi_cell(page_width, 5.5, _safe_text(stripped))
 
     # 保存
     safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50] or "文档"

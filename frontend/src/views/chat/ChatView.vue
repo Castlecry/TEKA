@@ -341,7 +341,8 @@ const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
 const token = ref(localStorage.getItem('token') || '')
-const currentSessionId = ref('default')
+// 从 localStorage 恢复当前会话 ID，跨页面切换保持
+const currentSessionId = ref(localStorage.getItem('currentSessionId') || 'default')
 const messages = ref([])
 const inputMessage = ref('')
 const loading = ref(false)
@@ -403,12 +404,24 @@ const settings = reactive({
 const createNewSession = () => {
   const newId = Date.now().toString()
   currentSessionId.value = newId
+  // 立即持久化到 localStorage，确保跨页面导航不会丢失
+  localStorage.setItem('currentSessionId', newId)
   messages.value = []
   isFavorited.value = false
+  // 同时把会话信息写入 sessions 列表（即使没有消息也要显示在历史中）
+  if (!sessions.value.find(s => s.id === newId)) {
+    sessions.value.unshift({
+      id: newId,
+      title: '新对话',
+      updated_at: new Date().toISOString(),
+      message_count: 0,
+    })
+  }
 }
 
 const switchSession = (sessionId) => {
   currentSessionId.value = sessionId
+  localStorage.setItem('currentSessionId', sessionId)
   loadHistory(sessionId)
   checkFavoriteStatus(sessionId)
 }
@@ -706,6 +719,7 @@ const submitFeedback = async (index, rating) => {
 
 const resetChatState = () => {
   currentSessionId.value = 'default'
+  localStorage.setItem('currentSessionId', 'default')
   messages.value = []
   sessions.value = []
   inputMessage.value = ''
@@ -736,11 +750,11 @@ const loadAvailableKnowledgeBases = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   lastUserId = userStore.user?.id || null
-  loadModules()
-  loadSessions()
-  loadAvailableKnowledgeBases()
+  await loadModules()
+  await loadSessions()
+  await loadAvailableKnowledgeBases()
 
   // 处理从 Dashboard 跳转来的模块和问题
   if (route.query.module) {
@@ -752,8 +766,25 @@ onMounted(() => {
   // 处理从收藏页跳转来的会话
   if (route.query.session) {
     currentSessionId.value = route.query.session
-    loadHistory(route.query.session)
-    checkFavoriteStatus(route.query.session)
+    localStorage.setItem('currentSessionId', route.query.session)
+    await loadHistory(route.query.session)
+    await checkFavoriteStatus(route.query.session)
+  } else {
+    // 恢复上次活跃会话（localStorage 中持久化的）
+    const savedSessionId = localStorage.getItem('currentSessionId')
+    if (savedSessionId && savedSessionId !== 'default') {
+      // 检查该会话是否真实存在于会话列表中
+      const exists = sessions.value.find(s => s.id === savedSessionId)
+      if (exists) {
+        currentSessionId.value = savedSessionId
+        await loadHistory(savedSessionId)
+        await checkFavoriteStatus(savedSessionId)
+      } else {
+        // 会话不存在（可能被删除或从未创建），清理 localStorage
+        localStorage.removeItem('currentSessionId')
+        currentSessionId.value = 'default'
+      }
+    }
   }
   // 清空 query 参数
   router.replace({ query: {} })
