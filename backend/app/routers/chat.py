@@ -204,19 +204,11 @@ async def send_message_stream(
         """保存对话日志"""
         from app.database import SessionLocal
 
-        await asyncio.sleep(1)
-        # 等待流式输出完成（通过哨兵标记判断）
-        done_marker = "__LOG_SAVE_DONE__"
-        while True:
-            # 检查队列末尾是否有完成标记
-            # 使用一个独立的标记来判断，避免访问私有属性
-            await asyncio.sleep(0.2)
-            if _queue.empty():
-                continue
-            # 尝试偷看第一个元素（不取出）—— 用 task_done 反向判断
-            # 更简单的做法：用一个共享事件
-            if _is_stream_done.is_set():
-                break
+        # 等待流式输出完成（通过 _is_stream_done 事件判断）
+        try:
+            await asyncio.wait_for(_is_stream_done.wait(), timeout=120)
+        except asyncio.TimeoutError:
+            print("[Stream] save_log 等待超时，强制保存")
 
         full_text = "".join(_full_answer)
         db = SessionLocal()
