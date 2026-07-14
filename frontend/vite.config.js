@@ -18,6 +18,10 @@ export default defineConfig({
         ws: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      '/files': {
+        target: 'http://localhost:8888',
+        changeOrigin: true,
+      },
       '/ws': {
         target: 'ws://localhost:8888',
         ws: true,
