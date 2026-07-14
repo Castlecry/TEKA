@@ -152,7 +152,7 @@ async def send_message_stream(
         if module_kbs:
             _kb_ids = [kb.id for kb in module_kbs]
 
-    _full_answer = []
+    _full_answer = []  # 仅累计 content（保存到数据库用），不含 reasoning
     _attachments: list[dict] = []
 
     # 捕获当前事件循环引用，用于跨线程安全地往队列写数据
@@ -160,17 +160,18 @@ async def send_message_stream(
 
     async def run_rag():
         """在后台线程中执行 RAG 查询"""
-        def on_token(token: str):
-            _full_answer.append(token)
+        def on_token(chunk_type: str, token: str):
+            # chunk_type: "reasoning" (推理模型的思考) 或 "content" (最终回答)
+            if chunk_type == "content":
+                _full_answer.append(token)
             # 跨线程安全：使用 call_soon_threadsafe 把 put_nowait 调度到事件循环
             try:
-                _loop.call_soon_threadsafe(_queue.put_nowait, token)
+                _loop.call_soon_threadsafe(_queue.put_nowait, {"type": chunk_type, "text": token})
             except Exception:
                 pass
 
         try:
             if message.mode == "agent" and provider != "local":
-                # Agent 模式：用 to_thread 放到线程池执行，避免阻塞事件循环
                 result = await asyncio.to_thread(
                     agent_with_tools,
                     message.message, scoped_id, on_token,
@@ -187,9 +188,8 @@ async def send_message_stream(
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 if not _full_answer:
                     _full_answer.append(answer)
-                    _loop.call_soon_threadsafe(_queue.put_nowait, answer)
+                    _loop.call_soon_threadsafe(_queue.put_nowait, {"type": "content", "text": answer})
             elif message.mode == "langgraph" and provider != "local":
-                # LangGraph 模式：同样 to_thread
                 answer = await asyncio.to_thread(
                     run_agent,
                     message.message, scoped_id, on_token,
@@ -198,7 +198,7 @@ async def send_message_stream(
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 if not _full_answer:
                     _full_answer.append(answer)
-                    _loop.call_soon_threadsafe(_queue.put_nowait, answer)
+                    _loop.call_soon_threadsafe(_queue.put_nowait, {"type": "content", "text": answer})
             else:
                 await asyncio.to_thread(
                     _rag_chain.rag_query,
@@ -217,7 +217,6 @@ async def send_message_stream(
                 pass
             print(f"[Stream] RAG 查询异常: {e}")
         finally:
-            # 同样用 call_soon_threadsafe，保证所有 token 都已入队后才发出 __DONE__
             _loop.call_soon_threadsafe(_queue.put_nowait, "__DONE__")
 
     async def save_log():
@@ -260,19 +259,23 @@ async def send_message_stream(
         # 第一帧：发送会话 ID（前端可用于同步状态）
         yield f"data: {json.dumps({'type': 'meta', 'conversation_id': conversation_id, 'module': message.module}, ensure_ascii=False)}\n\n"
         while True:
-            token = await _queue.get()
-            if token == "__DONE__":
+            item = await _queue.get()
+            if item == "__DONE__":
                 # 流式结束前，如果有附件，发送附件元数据
                 if _attachments:
                     yield f"data: {json.dumps({'type': 'attachments', 'items': _attachments}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 _is_stream_done.set()
                 break
-            if token.startswith("__ERROR__:"):
-                yield f"data: {json.dumps({'type': 'error', 'content': token[10:]}, ensure_ascii=False)}\n\n"
+            if isinstance(item, str) and item.startswith("__ERROR__:"):
+                yield f"data: {json.dumps({'type': 'error', 'content': item[10:]}, ensure_ascii=False)}\n\n"
                 _is_stream_done.set()
+            elif isinstance(item, dict):
+                # 推理模型的流式 chunk：包含 type (reasoning/content) + text
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
             else:
-                yield f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n"
+                # 兼容旧格式：纯字符串 token
+                yield f"data: {json.dumps({'type': 'chunk', 'content': item}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         stream_generator(),

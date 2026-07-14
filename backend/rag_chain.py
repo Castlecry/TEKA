@@ -115,7 +115,7 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
         messages=messages,
         provider=provider,
         stream=True,
-        stream_callback=stream_callback or (lambda t: _safe_print(t, end="", flush=True)),
+        stream_callback=stream_callback or (lambda ctype, t: _safe_print(t, end="", flush=True)),
         timeout=120 if provider == "local" else 60,
     )
 

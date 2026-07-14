@@ -150,6 +150,23 @@
               <span class="message-time">{{ message.created_at }}</span>
             </div>
             <div class="message-body">
+              <!-- 推理过程（折叠区，参考 DeepSeek 风格） -->
+              <div v-if="message.role === 'assistant' && message.reasoning" class="reasoning-block">
+                <div
+                  class="reasoning-header"
+                  @click="message.reasoningExpanded = !message.reasoningExpanded"
+                >
+                  <el-icon :size="14" class="reasoning-icon">
+                    <component :is="message.reasoningExpanded ? ArrowDown : ArrowRight" />
+                  </el-icon>
+                  <span class="reasoning-label">
+                    已思考<span v-if="message.reasoningDuration > 0">（用时 {{ message.reasoningDuration }} 秒）</span>
+                  </span>
+                </div>
+                <div v-if="message.reasoningExpanded" class="reasoning-content">
+                  <RichContent :content="message.reasoning" type="markdown" />
+                </div>
+              </div>
               <RichContent v-if="message.role === 'assistant'" :content="message.content" type="markdown" />
               <span v-else>{{ message.content }}</span>
               <!-- 文档下载附件 -->
@@ -341,7 +358,8 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ChatLineRound, User, Promotion, Plus, Delete, Setting,
   Menu, Close, Connection, MagicStick, Sunny, Cpu, Monitor, Document, Reading, Download, Paperclip,
-  CopyDocument, Check, RefreshRight, Star, WarningFilled
+  CopyDocument, Check, RefreshRight, Star, WarningFilled,
+  ArrowDown, ArrowRight
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import RichContent from '@/components/RichContent.vue'
@@ -604,9 +622,18 @@ const sendMessage = async () => {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullAnswer = ''
+      let reasoningText = ''
+      let reasoningStartTime = 0
 
       // 创建 assistant 消息占位
-      const assistantMsg = { role: 'assistant', content: '', created_at: new Date().toLocaleTimeString() }
+      const assistantMsg = {
+        role: 'assistant',
+        content: '',
+        reasoning: '',
+        reasoningDuration: 0,
+        reasoningExpanded: false,
+        created_at: new Date().toLocaleTimeString()
+      }
       messages.value.push(assistantMsg)
 
       while (true) {
@@ -626,12 +653,24 @@ const sendMessage = async () => {
                 // 后端确认了会话 ID，同步到前端
                 currentSessionId.value = parsed.conversation_id
                 localStorage.setItem('currentSessionId', parsed.conversation_id)
+              } else if (parsed.type === 'reasoning' && parsed.text) {
+                // 推理模型的思考过程（流式）—— 折叠区显示
+                if (reasoningStartTime === 0) reasoningStartTime = Date.now()
+                reasoningText += parsed.text
+                assistantMsg.reasoning = reasoningText
+                assistantMsg.reasoningDuration = Math.floor((Date.now() - reasoningStartTime) / 1000)
+                scrollToBottom()
+              } else if (parsed.type === 'content' && parsed.text) {
+                // 最终回答（流式）
+                fullAnswer += parsed.text
+                assistantMsg.content = fullAnswer
+                scrollToBottom()
               } else if (parsed.type === 'chunk' && parsed.content) {
+                // 兼容旧格式
                 fullAnswer += parsed.content
                 assistantMsg.content = fullAnswer
                 scrollToBottom()
               } else if (parsed.type === 'attachments' && Array.isArray(parsed.items) && parsed.items.length > 0) {
-                // 接收附件元数据，附加到 assistant 消息上
                 assistantMsg.attachments = parsed.items
               } else if (parsed.type === 'error') {
                 assistantMsg.content = `错误: ${parsed.content}`
@@ -1674,6 +1713,50 @@ watch(
 
 .attachment-card.pdf:hover .attachment-download {
   color: #dc2626;
+}
+
+/* 推理过程（思考链）折叠区 */
+.reasoning-block {
+  margin-bottom: 12px;
+  background: #f7f8fa;
+  border: 1px solid #e6e8eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #606266;
+  transition: background 0.15s;
+}
+.reasoning-header:hover {
+  background: #eef0f3;
+}
+.reasoning-icon {
+  color: #8b5cf6;
+  transition: transform 0.2s;
+}
+.reasoning-label {
+  font-weight: 500;
+  color: #8b5cf6;
+}
+.reasoning-content {
+  padding: 12px 16px;
+  border-top: 1px solid #e6e8eb;
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #606266;
+  background: #fafbfc;
+}
+.reasoning-content :deep(p) {
+  margin: 4px 0;
 }
 
 /* 消息操作栏 */

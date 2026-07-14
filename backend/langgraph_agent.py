@@ -183,14 +183,14 @@ def generate_answer(state: AgentState) -> AgentState:
                     try:
                         data = json.loads(data_str)
                         delta = data["choices"][0].get("delta", {})
-                        # 推理模型：reasoning_content + content 两阶段都推送
+                        # 推理模型：reasoning_content + content 分阶段推送
                         reasoning = delta.get("reasoning_content", "")
                         content = delta.get("content", "")
                         if reasoning:
-                            stream_callback(f"<think>{reasoning}</think>")
+                            stream_callback("reasoning", reasoning)
                         if content:
                             answer += content
-                            stream_callback(content)
+                            stream_callback("content", content)
                     except json.JSONDecodeError:
                         continue
     else:

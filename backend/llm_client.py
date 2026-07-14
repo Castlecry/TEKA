@@ -92,7 +92,7 @@ def _ollama_chat(messages: list[dict], stream: bool = False,
                 token = chunk.get("response", "")
                 if token:
                     answer += token
-                    stream_callback(token)
+                    stream_callback("content", token)
                 if chunk.get("done"):
                     break
             except json.JSONDecodeError:
@@ -155,18 +155,16 @@ def _deepseek_chat(messages: list[dict], stream: bool = False,
 
                 # 推理模型（deepseek-reasoner / deepseek-v4-flash 等）：
                 # 思考阶段返回 reasoning_content，思考结束后返回 content
-                # 两阶段都需要实时推送到前端，避免"长时间静默 + 一次性输出"
+                # 两阶段分别推送，类型标记为 reasoning / content
                 reasoning_token = delta.get("reasoning_content", "")
                 content_token = delta.get("content", "")
 
-                if reasoning_token:
-                    # 用特殊前缀标记，前端可以单独渲染或折叠
-                    if stream_callback:
-                        stream_callback(f"<think>{reasoning_token}</think>")
+                if reasoning_token and stream_callback:
+                    stream_callback("reasoning", reasoning_token)
                 if content_token:
                     answer += content_token
                     if stream_callback:
-                        stream_callback(content_token)
+                        stream_callback("content", content_token)
             except json.JSONDecodeError:
                 continue
         return answer

@@ -415,7 +415,7 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
         # 没有工具调用，直接返回回答
         content = message.get("content", "抱歉，我无法回答这个问题。")
         if stream_callback:
-            stream_callback(content)
+            stream_callback("content", content)
         return {"answer": content, "attachments": []}
 
 
@@ -450,14 +450,14 @@ def _generate_with_messages(headers: dict, messages: list, stream_callback=None)
                     try:
                         data = json.loads(data_str)
                         delta = data["choices"][0].get("delta", {})
-                        # 推理模型：reasoning_content + content 两阶段都推送
+                        # 推理模型：reasoning_content + content 分阶段推送
                         reasoning = delta.get("reasoning_content", "")
                         content = delta.get("content", "")
                         if reasoning:
-                            stream_callback(f"<think>{reasoning}</think>")
+                            stream_callback("reasoning", reasoning)
                         if content:
                             answer += content
-                            stream_callback(content)
+                            stream_callback("content", content)
                     except json.JSONDecodeError:
                         continue
             return answer
