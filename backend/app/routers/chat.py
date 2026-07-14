@@ -244,6 +244,8 @@ async def send_message_stream(
     asyncio.create_task(save_log())
 
     async def stream_generator():
+        # 第一帧：发送会话 ID（前端可用于同步状态）
+        yield f"data: {json.dumps({'type': 'meta', 'conversation_id': conversation_id, 'module': message.module}, ensure_ascii=False)}\n\n"
         while True:
             token = await _queue.get()
             if token == "__DONE__":
@@ -254,7 +256,7 @@ async def send_message_stream(
                 _is_stream_done.set()
                 break
             if token.startswith("__ERROR__:"):
-                yield f"data: {json.dumps({'type': 'error', 'content': token[10:]})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': token[10:]}, ensure_ascii=False)}\n\n"
                 _is_stream_done.set()
             else:
                 yield f"data: {json.dumps({'type': 'chunk', 'content': token})}\n\n"

@@ -342,7 +342,8 @@ const route = useRoute()
 const router = useRouter()
 const token = ref(localStorage.getItem('token') || '')
 // 从 localStorage 恢复当前会话 ID，跨页面切换保持
-const currentSessionId = ref(localStorage.getItem('currentSessionId') || 'default')
+// 默认为 'pending'，表示当前没有激活的真实会话（显示欢迎页）
+const currentSessionId = ref(localStorage.getItem('currentSessionId') || 'pending')
 const messages = ref([])
 const inputMessage = ref('')
 const loading = ref(false)
@@ -402,21 +403,14 @@ const settings = reactive({
 })
 
 const createNewSession = () => {
-  const newId = Date.now().toString()
-  currentSessionId.value = newId
-  // 立即持久化到 localStorage，确保跨页面导航不会丢失
-  localStorage.setItem('currentSessionId', newId)
+  // 点击"新对话"：清空当前对话区，回到欢迎页
+  // 不创建任何历史记录，只有用户真正发送消息后才会在后端创建
+  currentSessionId.value = 'pending'
+  localStorage.setItem('currentSessionId', 'pending')
   messages.value = []
   isFavorited.value = false
-  // 同时把会话信息写入 sessions 列表（即使没有消息也要显示在历史中）
-  if (!sessions.value.find(s => s.id === newId)) {
-    sessions.value.unshift({
-      id: newId,
-      title: '新对话',
-      updated_at: new Date().toISOString(),
-      message_count: 0,
-    })
-  }
+  inputMessage.value = ''
+  selectedFile.value = null
 }
 
 const switchSession = (sessionId) => {
@@ -528,7 +522,15 @@ const sendMessage = async () => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('message', message)
-      if (currentSessionId.value) formData.append('conversation_id', currentSessionId.value)
+      // 如果当前是"pending"或"default"，生成新会话 ID
+      let sendConvId = currentSessionId.value
+      if (!sendConvId || sendConvId === 'pending' || sendConvId === 'default') {
+        sendConvId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).slice(2)
+      }
+      formData.append('conversation_id', sendConvId)
+      // 同步当前会话 ID
+      currentSessionId.value = sendConvId
+      localStorage.setItem('currentSessionId', sendConvId)
 
       const res = await request.post('/chat/upload-and-ask', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -542,6 +544,11 @@ const sendMessage = async () => {
     } else {
       // 纯文本：使用 HTTP SSE 流式
       const token = localStorage.getItem('token')
+      // 如果当前是"pending"（新对话）或"default"（初始），生成新的会话 ID 发送到后端
+      let sendConvId = currentSessionId.value
+      if (!sendConvId || sendConvId === 'pending' || sendConvId === 'default') {
+        sendConvId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).slice(2)
+      }
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: {
@@ -550,7 +557,7 @@ const sendMessage = async () => {
         },
         body: JSON.stringify({
           message: message,
-          conversation_id: currentSessionId.value,
+          conversation_id: sendConvId,
           use_web: useWeb.value,
           mode: chatMode.value,
           provider: modelProvider.value,
@@ -590,7 +597,11 @@ const sendMessage = async () => {
             if (data === '[DONE]') continue
             try {
               const parsed = JSON.parse(data)
-              if (parsed.type === 'chunk' && parsed.content) {
+              if (parsed.type === 'meta' && parsed.conversation_id) {
+                // 后端确认了会话 ID，同步到前端
+                currentSessionId.value = parsed.conversation_id
+                localStorage.setItem('currentSessionId', parsed.conversation_id)
+              } else if (parsed.type === 'chunk' && parsed.content) {
                 fullAnswer += parsed.content
                 assistantMsg.content = fullAnswer
                 scrollToBottom()
@@ -772,18 +783,21 @@ onMounted(async () => {
   } else {
     // 恢复上次活跃会话（localStorage 中持久化的）
     const savedSessionId = localStorage.getItem('currentSessionId')
-    if (savedSessionId && savedSessionId !== 'default') {
-      // 检查该会话是否真实存在于会话列表中
-      const exists = sessions.value.find(s => s.id === savedSessionId)
+    if (savedSessionId && savedSessionId !== 'default' && savedSessionId !== 'pending') {
+      // 检查该会话是否真实存在于后端会话列表中
+      const exists = sessions.value.find(s => s.session_id === savedSessionId || s.conversation_id === savedSessionId)
       if (exists) {
         currentSessionId.value = savedSessionId
         await loadHistory(savedSessionId)
         await checkFavoriteStatus(savedSessionId)
       } else {
-        // 会话不存在（可能被删除或从未创建），清理 localStorage
+        // 会话不存在（可能被删除或从未在后端创建），清理 localStorage
         localStorage.removeItem('currentSessionId')
-        currentSessionId.value = 'default'
+        currentSessionId.value = 'pending'
       }
+    } else {
+      // 初始状态：显示欢迎页
+      currentSessionId.value = 'pending'
     }
   }
   // 清空 query 参数
