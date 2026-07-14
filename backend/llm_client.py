@@ -33,6 +33,7 @@ _SESSION = _build_session()
 
 def _safe_request(method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
     """带 SSL 重试的安全请求，自动切换到本地 Ollama 兜底"""
+    global _SESSION
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -46,7 +47,6 @@ def _safe_request(method: str, url: str, max_retries: int = 3, **kwargs) -> requ
                 time.sleep(wait)
             # SSL EOF 错误时刷新 session 强制重建连接池
             if isinstance(e, SSLError):
-                global _SESSION
                 _SESSION = _build_session()
     raise last_err
 
