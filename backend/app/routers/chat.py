@@ -62,6 +62,8 @@ async def send_message(
                 use_rerank=True,
                 use_rewrite=True,
                 provider="local",
+                module=message.module or "general",
+                knowledge_base_ids=message.knowledge_base_ids or None,
             )
         else:
             response = agent_with_tools(
@@ -80,11 +82,15 @@ async def send_message(
                 use_rerank=True,
                 use_rewrite=True,
                 provider="local",
+                module=message.module or "general",
+                knowledge_base_ids=message.knowledge_base_ids or None,
             )
         else:
             response = run_agent(
                 query=message.message,
-                session_id=scoped_id
+                session_id=scoped_id,
+                module=message.module or "general",
+                knowledge_base_ids=message.knowledge_base_ids or None,
             )
         _conv_store.save_message(scoped_id, "user", message.message)
         _conv_store.save_message(scoped_id, "assistant", response)
@@ -97,6 +103,8 @@ async def send_message(
             use_rerank=True,
             use_rewrite=True,
             provider=provider,
+            module=message.module or "general",
+            knowledge_base_ids=message.knowledge_base_ids or None,
         )
 
     # 提取最终回答文本（兼容 dict 和 str 两种返回格式）
@@ -193,6 +201,8 @@ async def send_message_stream(
                 answer = await asyncio.to_thread(
                     run_agent,
                     message.message, scoped_id, on_token,
+                    module=message.module or "general",
+                    knowledge_base_ids=_kb_ids or None,
                 )
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
@@ -209,6 +219,8 @@ async def send_message_stream(
                     use_rewrite=True,
                     stream_callback=on_token,
                     provider=provider,
+                    module=message.module or "general",
+                    knowledge_base_ids=_kb_ids or None,
                 )
         except Exception as e:
             try:
@@ -639,11 +651,15 @@ async def get_feedback(
     return {"rating": fb.rating, "correction": fb.correction or ""}
 
 
-# ========== 对话收藏 ==========
+# ========== 消息收藏（单条 AI 回复） ==========
 
 class FavoriteRequest(BaseModel):
     conversation_id: str
+    message_id: str  # AI 消息的 ID（用于定位单条回复）
     title: Optional[str] = None
+    query: Optional[str] = None   # 用户问题原文
+    answer: Optional[str] = None  # AI 回答原文
+    module: Optional[str] = None
 
 
 @router.post("/favorite")
@@ -652,23 +668,27 @@ async def toggle_favorite(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """收藏/取消收藏对话（切换）"""
+    """收藏/取消收藏单条 AI 回复（切换）"""
     existing = db.query(models.ConversationFavorite).filter(
         models.ConversationFavorite.conversation_id == req.conversation_id,
+        models.ConversationFavorite.message_id == req.message_id,
         models.ConversationFavorite.user_id == current_user.id,
     ).first()
 
     if existing:
-        # 已收藏 → 取消收藏
         db.delete(existing)
         db.commit()
         return {"favorited": False, "message": "已取消收藏"}
 
-    # 未收藏 → 添加收藏
+    title = req.title or (req.query[:50] if req.query else "未命名收藏")
     fav = models.ConversationFavorite(
         conversation_id=req.conversation_id,
+        message_id=req.message_id,
         user_id=current_user.id,
-        title=req.title,
+        title=title,
+        query=req.query or "",
+        answer=req.answer or "",
+        module=req.module or "general",
     )
     db.add(fav)
     db.commit()
@@ -693,21 +713,44 @@ async def get_favorites(
             "id": f.id,
             "conversation_id": f.conversation_id,
             "title": f.title,
+            "query": f.query or "",
+            "answer": f.answer or "",
+            "module": f.module or "general",
             "created_at": f.created_at.isoformat() if f.created_at else "",
         }
         for f in favorites
     ]
 
 
-@router.get("/favorites/check/{conversation_id}")
+@router.get("/favorites/check/{conversation_id}/{message_id}")
 async def check_favorite(
     conversation_id: str,
+    message_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """检查某个对话是否已收藏"""
+    """检查某条消息是否已收藏"""
     fav = db.query(models.ConversationFavorite).filter(
         models.ConversationFavorite.conversation_id == conversation_id,
+        models.ConversationFavorite.message_id == message_id,
         models.ConversationFavorite.user_id == current_user.id,
     ).first()
     return {"favorited": fav is not None}
+
+
+@router.delete("/favorites/{fav_id}")
+async def delete_favorite(
+    fav_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """删除单条收藏"""
+    fav = db.query(models.ConversationFavorite).filter(
+        models.ConversationFavorite.id == fav_id,
+        models.ConversationFavorite.user_id == current_user.id,
+    ).first()
+    if not fav:
+        raise HTTPException(status_code=404, detail="收藏不存在")
+    db.delete(fav)
+    db.commit()
+    return {"message": "已取消收藏"}

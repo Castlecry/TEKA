@@ -152,7 +152,7 @@ async def regenerate_document_vectors(
 
     try:
         from document_service import regenerate_for_document
-        result = regenerate_for_document(doc.file_path, source=doc.filename)
+        result = regenerate_for_document(doc.file_path, source=doc.filename, knowledge_base_id=doc.knowledge_base_id)
 
         if result["success"]:
             doc.status = "completed"

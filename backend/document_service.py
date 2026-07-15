@@ -43,7 +43,7 @@ def process_document(file_path: str, kb_id: int, source: str) -> dict:
         print(f"[DocumentService] 向量化完成，共 {len(vectors)} 个向量")
 
         # 4. 存入 OpenSearch
-        count = add_documents(chunks, source=source)
+        count = add_documents(chunks, source=source, knowledge_base_id=kb_id)
         print(f"[DocumentService] OpenSearch 写入完成，{count} 条")
 
         return {
@@ -64,7 +64,7 @@ def process_document(file_path: str, kb_id: int, source: str) -> dict:
         }
 
 
-def regenerate_for_document(file_path: str, source: str) -> dict:
+def regenerate_for_document(file_path: str, source: str, knowledge_base_id: int = None) -> dict:
     """仅重新生成向量（文档已存在，重新切片+向量化+存储）"""
     try:
         md_content = parse_document(file_path)
@@ -73,7 +73,7 @@ def regenerate_for_document(file_path: str, source: str) -> dict:
             return {"success": False, "error": "切片结果为空", "chunk_count": 0}
 
         embed_batch(chunks)
-        count = add_documents(chunks, source=source)
+        count = add_documents(chunks, source=source, knowledge_base_id=knowledge_base_id)
 
         return {"success": True, "chunk_count": len(chunks), "error": None}
     except Exception as e:

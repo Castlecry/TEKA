@@ -1,11 +1,45 @@
 <template>
-  <div v-html="renderedContent" class="markdown-content" />
+  <div v-html="renderedContent" class="markdown-content" @click="handleLinkClick" />
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
+
+// 拦截下载链接点击：用 fetch + JWT token 下载，避免浏览器直接跳转导致"需要登录"
+function handleLinkClick(e) {
+  const link = e.target.closest('a')
+  if (!link) return
+  const href = link.getAttribute('href')
+  if (!href || !href.includes('/files/download/')) return
+
+  e.preventDefault()
+  e.stopPropagation()
+
+  const token = localStorage.getItem('token')
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  fetch(href, { headers })
+    .then(res => {
+      if (!res.ok) throw new Error(`下载失败 (${res.status})`)
+      return res.blob()
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = link.textContent || 'download'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+    .catch(err => {
+      console.error('[Download] 下载失败:', err)
+    })
+}
 
 const props = defineProps({
   content: {

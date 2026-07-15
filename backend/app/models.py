@@ -130,8 +130,12 @@ class ConversationFavorite(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(String(50), index=True, nullable=False)
+    message_id = Column(String(100), index=True)  # 消息 ID（用于定位单条回复）
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    title = Column(String(200))  # 收藏时的对话标题（第一条用户消息）
+    title = Column(String(200))  # 收藏时的标题（用户问题摘要）
+    query = Column(Text)  # 用户问题原文
+    answer = Column(Text)  # AI 回答原文
+    module = Column(String(50), default="general")  # 所属模块
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")

@@ -204,7 +204,7 @@
                 <button class="action-btn" title="重新生成" :disabled="loading" @click="regenerateMessage(index)">
                   <el-icon :size="14"><RefreshRight /></el-icon>
                 </button>
-                <button class="action-btn" :class="{ active: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏对话'" @click="toggleFavorite">
+                <button class="action-btn" :class="{ active: message.favorited }" :title="message.favorited ? '取消收藏' : '收藏此回复'" @click="toggleFavoriteMessage(index)">
                   <el-icon :size="14"><Star /></el-icon>
                 </button>
                 <button class="action-btn" :class="{ active: message.feedback === -1 }" title="没帮助" @click="submitFeedback(index, -1)">
@@ -388,7 +388,6 @@ const sessions = ref([])
 const sidebarCollapsed = ref(false)
 const settingsOpen = ref(false)
 const copiedIndex = ref(-1)
-const isFavorited = ref(false)
 const selectedKBIds = ref([])
 const availableKnowledgeBases = ref([])
 let lastUserId = userStore.user?.id || null
@@ -449,7 +448,6 @@ const createNewSession = () => {
   currentSessionId.value = 'pending'
   localStorage.setItem('currentSessionId', 'pending')
   messages.value = []
-  isFavorited.value = false
   inputMessage.value = ''
   selectedFile.value = null
 }
@@ -502,31 +500,57 @@ const loadHistory = async (sessionId) => {
   }
 }
 
-// ========== 收藏功能 ==========
+// ========== 收藏功能（单条消息级别） ==========
 
+// 检查当前对话中哪些消息已收藏
 const checkFavoriteStatus = async (conversationId) => {
+  if (!conversationId || conversationId === 'default') return
   try {
-    const res = await request.get(`/chat/favorites/check/${conversationId}`)
-    isFavorited.value = res?.favorited || false
+    // 遍历所有 AI 消息，逐条检查收藏状态
+    for (let i = 0; i < messages.value.length; i++) {
+      const msg = messages.value[i]
+      if (msg.role === 'assistant' && msg.content) {
+        const res = await request.get(`/chat/favorites/check/${conversationId}/${msg.id || i}`)
+        msg.favorited = res?.favorited || false
+      }
+    }
   } catch (e) {
     console.error('检查收藏状态失败', e)
   }
 }
 
-const toggleFavorite = async () => {
+// 切换单条 AI 消息的收藏状态
+const toggleFavoriteMessage = async (index) => {
+  const message = messages.value[index]
+  if (!message || message.role !== 'assistant') return
+
   if (!currentSessionId.value || currentSessionId.value === 'default') {
     ElMessage.warning('请先进行对话再收藏')
     return
   }
 
+  // 找到对应的用户问题（上一条用户消息）
+  let query = ''
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') {
+      query = messages.value[i].content
+      break
+    }
+  }
+
+  const title = query.slice(0, 50) || '未命名收藏'
+
   try {
-    const title = messages.value.find(m => m.role === 'user')?.content?.slice(0, 50) || '未命名对话'
     const res = await request.post('/chat/favorite', {
       conversation_id: currentSessionId.value,
+      message_id: message.id || String(index),
       title,
+      query,
+      answer: message.content,
+      module: currentModule.value || 'general',
     })
-    isFavorited.value = res?.favorited || false
-    ElMessage.success(res?.message || (isFavorited.value ? '已收藏' : '已取消收藏'))
+    message.favorited = res?.favorited || false
+    ElMessage.success(res?.message || (message.favorited ? '已收藏' : '已取消收藏'))
   } catch (e) {
     console.error('收藏操作失败', e)
     ElMessage.error('操作失败')
@@ -555,6 +579,7 @@ const sendMessage = async () => {
 
   const displayContent = file ? `[文件: ${file.name}] ${message}` : message
   messages.value.push({
+    id: `msg_${Date.now()}_u`,
     role: 'user',
     content: displayContent,
     created_at: new Date().toLocaleTimeString(),
@@ -583,6 +608,7 @@ const sendMessage = async () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       messages.value.push({
+        id: `msg_${Date.now()}_a`,
         role: 'assistant',
         content: res.answer || '无响应',
         created_at: new Date().toLocaleTimeString(),
@@ -636,6 +662,7 @@ const sendMessage = async () => {
 
       // 创建 assistant 消息占位
       const assistantMsg = reactive({
+        id: `msg_${Date.now()}_a`,
         role: 'assistant',
         content: '',
         reasoning: '',
@@ -703,6 +730,7 @@ const sendMessage = async () => {
   } catch (e) {
     console.error('发送失败', e)
     messages.value.push({
+      id: `msg_${Date.now()}_a`,
       role: 'assistant',
       content: `请求失败: ${e.message || '请检查后端服务'}`,
       created_at: new Date().toLocaleTimeString(),
