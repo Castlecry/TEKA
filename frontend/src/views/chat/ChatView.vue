@@ -167,7 +167,11 @@
                   <RichContent :content="message.reasoning" type="markdown" />
                 </div>
               </div>
-              <RichContent v-if="message.role === 'assistant'" :content="message.content" type="markdown" />
+              <!-- 流式输出时使用纯文本，结束后使用 markdown 渲染 -->
+              <template v-if="message.role === 'assistant'">
+                <div v-if="message.streaming" class="streaming-text">{{ message.content }}</div>
+                <RichContent v-else :content="message.content" type="markdown" />
+              </template>
               <span v-else>{{ message.content }}</span>
               <!-- 文档下载附件 -->
               <div v-if="message.attachments && message.attachments.length > 0" class="message-attachments">
@@ -631,14 +635,15 @@ const sendMessage = async () => {
       let reasoningStartTime = 0
 
       // 创建 assistant 消息占位
-      const assistantMsg = {
+      const assistantMsg = reactive({
         role: 'assistant',
         content: '',
         reasoning: '',
         reasoningDuration: 0,
         reasoningExpanded: false,
+        streaming: true,
         created_at: new Date().toLocaleTimeString()
-      }
+      })
       messages.value.push(assistantMsg)
 
       while (true) {
@@ -688,6 +693,8 @@ const sendMessage = async () => {
       if (!fullAnswer) {
         assistantMsg.content = '(空响应)'
       }
+      // 流式结束，切换到 markdown 渲染
+      assistantMsg.streaming = false
     }
 
     loadSessions()
@@ -1718,6 +1725,14 @@ watch(
 
 .attachment-card.pdf:hover .attachment-download {
   color: #dc2626;
+}
+
+/* 流式输出纯文本（避免 markdown 渲染阻塞） */
+.streaming-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  font-size: 14px;
 }
 
 /* 推理过程（思考链）折叠区 */
