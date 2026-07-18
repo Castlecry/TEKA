@@ -600,6 +600,7 @@ const sendMessage = async () => {
         sendConvId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).slice(2)
       }
       formData.append('conversation_id', sendConvId)
+      formData.append('module', currentModule.value || 'general')
       // 同步当前会话 ID
       currentSessionId.value = sendConvId
       localStorage.setItem('currentSessionId', sendConvId)

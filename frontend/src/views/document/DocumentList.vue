@@ -17,6 +17,23 @@
       </el-button>
     </div>
 
+    <!-- 状态筛选 Tab -->
+    <div class="tab-section fade-in-delay">
+      <el-card shadow="never" class="tab-card">
+        <div class="tab-bar">
+          <div
+            v-for="tab in tabs"
+            :key="tab.value"
+            :class="['tab-item', { active: activeTab === tab.value }]"
+            @click="switchTab(tab.value)"
+          >
+            <span>{{ tab.label }}</span>
+            <el-badge v-if="tab.count > 0" :value="tab.count" :max="99" class="tab-badge" />
+          </div>
+        </div>
+      </el-card>
+    </div>
+
     <!-- 搜索和筛选区域 -->
     <div class="search-section fade-in-delay">
       <el-card shadow="never" class="search-card">
@@ -45,7 +62,7 @@
     <!-- 表格区域 -->
     <div class="table-section fade-in-delay-2">
       <el-card shadow="never" class="table-card" v-if="documents.length > 0">
-        <el-table :data="documents" class="custom-table">
+        <el-table :data="documents" class="custom-table" row-class-name="fade-in-row">
           <el-table-column prop="filename" label="文件名" min-width="220">
             <template #default="scope">
               <div class="file-name-cell">
@@ -76,28 +93,57 @@
               <span class="chunk-count">{{ scope.row.chunk_count || 0 }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="120" align="center">
+          <el-table-column prop="status" label="状态" width="140" align="center">
             <template #default="scope">
               <el-tag :type="getStatusType(scope.row.status)" size="small" effect="light" round>
                 {{ getStatusText(scope.row.status) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="260" align="center" fixed="right">
+          <el-table-column label="操作" width="320" align="center" fixed="right">
             <template #default="scope">
               <div class="action-btns">
-                <el-button type="primary" link size="small" @click="previewDocument(scope.row)">
-                  <el-icon><View /></el-icon>
-                  <span>预览</span>
-                </el-button>
-                <el-button type="warning" link size="small" @click="regenerateVector(scope.row)">
-                  <el-icon><RefreshRight /></el-icon>
-                  <span>重新生成向量</span>
-                </el-button>
-                <el-button type="danger" link size="small" @click="deleteDocument(scope.row)">
-                  <el-icon><Delete /></el-icon>
-                  <span>删除</span>
-                </el-button>
+                <!-- 待审核文档：显示审核操作 -->
+                <template v-if="scope.row.status === 'pending_review'">
+                  <el-button type="primary" link size="small" @click="showAuditDialog(scope.row)">
+                    <el-icon><View /></el-icon>
+                    <span>审核</span>
+                  </el-button>
+                  <el-button type="success" link size="small" @click="approveDocument(scope.row)">
+                    <el-icon><Check /></el-icon>
+                    <span>通过</span>
+                  </el-button>
+                  <el-button type="danger" link size="small" @click="rejectDocument(scope.row)">
+                    <el-icon><Close /></el-icon>
+                    <span>拒绝</span>
+                  </el-button>
+                </template>
+                <!-- 已拒绝文档：显示原因 -->
+                <template v-else-if="scope.row.status === 'rejected'">
+                  <el-button type="info" link size="small" @click="showRejectionReason(scope.row)">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>拒绝原因</span>
+                  </el-button>
+                  <el-button type="danger" link size="small" @click="deleteDocument(scope.row)">
+                    <el-icon><Delete /></el-icon>
+                    <span>删除</span>
+                  </el-button>
+                </template>
+                <!-- 其他状态：正常操作 -->
+                <template v-else>
+                  <el-button type="primary" link size="small" @click="previewDocument(scope.row)">
+                    <el-icon><View /></el-icon>
+                    <span>预览</span>
+                  </el-button>
+                  <el-button type="warning" link size="small" @click="regenerateVector(scope.row)">
+                    <el-icon><RefreshRight /></el-icon>
+                    <span>重新生成向量</span>
+                  </el-button>
+                  <el-button type="danger" link size="small" @click="deleteDocument(scope.row)">
+                    <el-icon><Delete /></el-icon>
+                    <span>删除</span>
+                  </el-button>
+                </template>
               </div>
             </template>
           </el-table-column>
@@ -207,14 +253,117 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 审核对话框 -->
+    <el-dialog v-model="showAuditDialogVisible" width="640px" class="audit-dialog" destroy-on-close>
+      <template #header>
+        <div class="dialog-header">
+          <div class="dialog-icon" style="background: linear-gradient(135deg, #f59e0b, #f97316);">
+            <el-icon :size="18"><Warning /></el-icon>
+          </div>
+          <div>
+            <h3>文档审核</h3>
+            <p>{{ auditDoc?.filename }}</p>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="auditDoc" class="audit-body">
+        <!-- 审核信息 -->
+        <div class="audit-info">
+          <div class="audit-info-row">
+            <span class="audit-label">审核结果：</span>
+            <el-tag type="warning" size="small" effect="light" round>待人工审核</el-tag>
+          </div>
+          <div class="audit-info-row" v-if="auditDoc.audit">
+            <span class="audit-label">置信度：</span>
+            <span class="audit-value">{{ (auditDoc.audit.confidence * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="audit-info-row" v-if="auditDoc.audit?.summary">
+            <span class="audit-label">内容摘要：</span>
+            <span class="audit-value">{{ auditDoc.audit.summary }}</span>
+          </div>
+        </div>
+
+        <!-- 风险分类 -->
+        <div class="audit-section" v-if="auditDoc.audit?.categories?.length">
+          <h4>风险分类</h4>
+          <div class="audit-tags">
+            <el-tag
+              v-for="cat in auditDoc.audit.categories"
+              :key="cat"
+              type="warning"
+              size="small"
+              effect="light"
+              round
+            >
+              {{ cat }}
+            </el-tag>
+          </div>
+        </div>
+
+        <!-- 审核原因 -->
+        <div class="audit-section" v-if="auditDoc.audit?.reasons?.length">
+          <h4>审核原因</h4>
+          <ul class="audit-reasons">
+            <li v-for="(reason, idx) in auditDoc.audit.reasons" :key="idx">{{ reason }}</li>
+          </ul>
+        </div>
+
+        <!-- 文档预览 -->
+        <div class="audit-section">
+          <h4>文档预览</h4>
+          <div v-loading="auditPreviewLoading" class="audit-preview">
+            <pre v-if="auditPreviewContent" class="audit-preview-content">{{ auditPreviewContent }}</pre>
+            <div v-else-if="!auditPreviewLoading" class="preview-empty">
+              <p>暂无可预览内容</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="showAuditDialogVisible = false">取消</el-button>
+          <el-button type="danger" @click="rejectFromAudit">拒绝并删除</el-button>
+          <el-button type="success" @click="approveFromAudit">通过并处理</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 拒绝原因对话框 -->
+    <el-dialog v-model="showRejectionDialog" width="480px" class="rejection-dialog">
+      <template #header>
+        <div class="dialog-header">
+          <div class="dialog-icon" style="background: linear-gradient(135deg, #ef4444, #f87171);">
+            <el-icon :size="18"><Close /></el-icon>
+          </div>
+          <div>
+            <h3>拒绝原因</h3>
+            <p>{{ rejectionDoc?.filename }}</p>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="rejectionDoc" class="rejection-body">
+        <p class="rejection-reason">{{ rejectionDoc.rejection_reason || '无具体原因' }}</p>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button type="primary" @click="showRejectionDialog = false">关闭</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Document, Upload, View, Delete, RefreshRight, Search
+  Document, Upload, View, Delete, RefreshRight, Search,
+  Check, Close, Warning, InfoFilled
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 
@@ -236,12 +385,26 @@ const formatDate = (dateStr) => {
 }
 
 const getStatusType = (status) => {
-  const types = { pending: 'info', processing: 'warning', completed: 'success', failed: 'danger' }
+  const types = {
+    pending: 'info',
+    processing: 'warning',
+    completed: 'success',
+    failed: 'danger',
+    pending_review: 'warning',
+    rejected: 'danger',
+  }
   return types[status] || 'info'
 }
 
 const getStatusText = (status) => {
-  const texts = { pending: '待处理', processing: '处理中', completed: '已完成', failed: '失败' }
+  const texts = {
+    pending: '待处理',
+    processing: '处理中',
+    completed: '已完成',
+    failed: '失败',
+    pending_review: '待审核',
+    rejected: '已拒绝',
+  }
   return texts[status] || status
 }
 
@@ -252,12 +415,13 @@ const getFileType = (filename) => {
   return types[ext] || 'default'
 }
 
-const getFileIcon = (filename) => {
-  if (!filename) return 'Document'
-  const ext = filename.split('.').pop().toLowerCase()
-  const icons = { pdf: 'Document', docx: 'Document', doc: 'Document', txt: 'Document', md: 'Document' }
-  return icons[ext] || 'Document'
-}
+// Tab 筛选
+const activeTab = ref('all')
+const tabs = ref([
+  { label: '全部', value: 'all', count: 0 },
+  { label: '待审核', value: 'pending_review', count: 0 },
+  { label: '合规', value: 'completed', count: 0 },
+])
 
 const searchText = ref('')
 const selectedKB = ref('')
@@ -280,11 +444,28 @@ const loadDocuments = async () => {
     const params = {}
     if (searchText.value) params.filename = searchText.value
     if (selectedKB.value) params.knowledge_base_id = selectedKB.value
+    if (activeTab.value !== 'all') params.status_filter = activeTab.value
     const data = await request.get('/documents/', { params })
     documents.value = data
+
+    // 更新 tab 计数
+    const allDocs = await request.get('/documents/', {
+      params: {
+        ...(searchText.value ? { filename: searchText.value } : {}),
+        ...(selectedKB.value ? { knowledge_base_id: selectedKB.value } : {}),
+      }
+    })
+    tabs.value[0].count = allDocs.length
+    tabs.value[1].count = allDocs.filter(d => d.status === 'pending_review').length
+    tabs.value[2].count = allDocs.filter(d => d.status === 'completed').length
   } catch (error) {
     ElMessage.error('加载文档列表失败')
   }
+}
+
+const switchTab = (tab) => {
+  activeTab.value = tab
+  loadDocuments()
 }
 
 const showPreviewDialog = ref(false)
@@ -363,11 +544,129 @@ const uploadFiles = async () => {
     }
     showUploadDialog.value = false
     fileList.value = []
-    ElMessage.success('上传成功')
+    ElMessage.success('上传成功，文档将进入审核流程')
     await loadDocuments()
   } catch (error) {
     ElMessage.error('上传失败')
   }
+}
+
+// ========== 审核功能 ==========
+
+const showAuditDialogVisible = ref(false)
+const auditDoc = ref(null)
+const auditPreviewLoading = ref(false)
+const auditPreviewContent = ref('')
+
+const showAuditDialog = async (row) => {
+  auditDoc.value = row
+  showAuditDialogVisible.value = true
+  auditPreviewLoading.value = true
+  auditPreviewContent.value = ''
+
+  try {
+    const data = await request.get(`/documents/${row.id}/preview`)
+    auditPreviewContent.value = data.content || '(空内容)'
+  } catch (error) {
+    auditPreviewContent.value = '预览加载失败'
+  } finally {
+    auditPreviewLoading.value = false
+  }
+}
+
+const approveDocument = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定通过文档「${row.filename}」的审核？通过后将自动进行向量生成。`,
+      '审核通过',
+      { type: 'success', confirmButtonText: '通过', cancelButtonText: '取消' }
+    )
+    // 先关闭可能的对话框，再发请求
+    showAuditDialogVisible.value = false
+    const res = await request.post(`/documents/audit/${row.id}/approve`)
+    ElMessage.success(res.message || '审核通过，正在后台处理...')
+    await loadDocuments()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
+const approveFromAudit = async () => {
+  if (!auditDoc.value) return
+  // 先关闭窗口，再发请求（异步处理）
+  showAuditDialogVisible.value = false
+  try {
+    const res = await request.post(`/documents/audit/${auditDoc.value.id}/approve`)
+    ElMessage.success(res.message || '审核通过，正在后台处理...')
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
+}
+
+const rejectDocument = async (row) => {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      `确定拒绝文档「${row.filename}」？拒绝后文件将被删除。`,
+      '审核拒绝',
+      {
+        type: 'warning',
+        confirmButtonText: '拒绝',
+        cancelButtonText: '取消',
+        inputPlaceholder: '请输入拒绝原因（可选）',
+      }
+    )
+    // 先关闭对话框，再发请求
+    showAuditDialogVisible.value = false
+    await request.post(`/documents/audit/${row.id}/reject`, null, {
+      params: { reason: reason || '' }
+    })
+    ElMessage.success('已拒绝并删除')
+    await loadDocuments()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
+const rejectFromAudit = async () => {
+  if (!auditDoc.value) return
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      '请输入拒绝原因（可选）',
+      '拒绝文档',
+      {
+        type: 'warning',
+        confirmButtonText: '拒绝',
+        cancelButtonText: '取消',
+        inputPlaceholder: '请输入拒绝原因',
+      }
+    )
+    // 先关闭窗口，再发请求（异步处理）
+    showAuditDialogVisible.value = false
+    await request.post(`/documents/audit/${auditDoc.value.id}/reject`, null, {
+      params: { reason: reason || '' }
+    })
+    ElMessage.success('已拒绝并删除')
+    await loadDocuments()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
+// ========== 拒绝原因 ==========
+
+const showRejectionDialog = ref(false)
+const rejectionDoc = ref(null)
+
+const showRejectionReason = (row) => {
+  rejectionDoc.value = row
+  showRejectionDialog.value = true
 }
 
 onMounted(() => {
@@ -392,6 +691,9 @@ onMounted(() => {
 .fade-in-delay-2 {
   animation: fadeInUp 0.5s ease-out 0.2s both;
 }
+.fade-in-row {
+  animation: fadeIn 0.3s ease-out;
+}
 
 @keyframes fadeInUp {
   from {
@@ -402,6 +704,11 @@ onMounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 页面头部 */
@@ -463,6 +770,66 @@ onMounted(() => {
 .upload-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(79, 110, 247, 0.4);
+}
+
+/* Tab 筛选 */
+.tab-card {
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--gray-100, #f3f4f6);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.tab-card :deep(.el-card__body) {
+  padding: 0;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  border-bottom: 1px solid var(--gray-100, #f3f4f6);
+}
+
+.tab-item {
+  position: relative;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-600, #6b7280);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-item:hover {
+  color: var(--primary, #4f6ef7);
+}
+
+.tab-item.active {
+  color: var(--primary, #4f6ef7);
+  font-weight: 600;
+}
+
+.tab-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: var(--primary, #4f6ef7);
+  border-radius: 1px;
+}
+
+.tab-badge :deep(.el-badge__content) {
+  font-size: 11px;
+  height: 18px;
+  line-height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
 }
 
 /* 搜索区域 */
@@ -858,5 +1225,114 @@ onMounted(() => {
 .preview-empty p {
   margin-top: 12px;
   font-size: 14px;
+}
+
+/* 审核对话框 */
+.audit-dialog :deep(.el-dialog) {
+  border-radius: var(--radius-lg, 16px);
+  overflow: hidden;
+}
+
+.audit-body {
+  padding: 0 4px;
+}
+
+.audit-info {
+  background: var(--gray-50, #f9fafb);
+  border-radius: var(--radius-md, 10px);
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.audit-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.audit-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.audit-label {
+  font-weight: 600;
+  color: var(--gray-600, #6b7280);
+  min-width: 80px;
+}
+
+.audit-value {
+  color: var(--gray-800, #1f2937);
+  font-weight: 500;
+}
+
+.audit-section {
+  margin-bottom: 20px;
+}
+
+.audit-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+}
+
+.audit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-reasons {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--gray-700, #374151);
+  line-height: 1.6;
+}
+
+.audit-reasons li {
+  margin-bottom: 4px;
+}
+
+.audit-preview {
+  background: var(--gray-50, #f9fafb);
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--gray-200, #e5e7eb);
+  padding: 16px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.audit-preview-content {
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gray-700, #374151);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 拒绝原因对话框 */
+.rejection-dialog :deep(.el-dialog) {
+  border-radius: var(--radius-lg, 16px);
+  overflow: hidden;
+}
+
+.rejection-body {
+  padding: 20px;
+  background: #fef2f2;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid #fecaca;
+}
+
+.rejection-reason {
+  margin: 0;
+  font-size: 14px;
+  color: #991b1b;
+  line-height: 1.6;
 }
 </style>

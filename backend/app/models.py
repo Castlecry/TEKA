@@ -7,6 +7,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     JSON,
     Enum,
@@ -75,10 +76,14 @@ class Document(Base):
     file_type = Column(String(50))
     size = Column(Integer)
     chunk_count = Column(Integer, default=0)
-    status = Column(Enum("pending", "processing", "completed", "failed", name="document_status"), default="pending")
+    status = Column(Enum("pending", "processing", "completed", "failed", "rejected", "pending_review", name="document_status"), default="pending")
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # 内容审核相关
+    audit_id = Column(Integer, ForeignKey("content_audit_logs.id"), nullable=True)
+    audit_status = Column(String(20), default="pending")  # pending / passed / rejected / pending_review
+    rejection_reason = Column(Text)
 
     knowledge_base = relationship("KnowledgeBase")
     uploaded_by_user = relationship("User")
@@ -139,3 +144,27 @@ class ConversationFavorite(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+
+class ContentAuditLog(Base):
+    __tablename__ = "content_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    filename = Column(String(300), nullable=False)
+    knowledge_base_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    verdict = Column(String(20), nullable=False)  # PASS / REVIEW / BLOCK
+    confidence = Column(Float, default=0.5)
+    categories = Column(Text)  # JSON list
+    reasons = Column(Text)  # JSON list
+    summary = Column(Text)
+    raw_result = Column(Text)  # 完整审核结果 JSON
+    status = Column(String(20), default="pending")  # pending / approved / rejected / auto_processed
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 人工审核人
+    reviewer_comment = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    reviewer = relationship("User", foreign_keys=[reviewer_id])

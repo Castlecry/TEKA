@@ -281,12 +281,26 @@ const formatFileSize = (bytes) => {
 }
 
 const getStatusType = (status) => {
-  const types = { pending: 'info', processing: 'warning', completed: 'success', failed: 'danger' }
+  const types = {
+    pending: 'info',
+    processing: 'warning',
+    completed: 'success',
+    failed: 'danger',
+    pending_review: 'warning',
+    rejected: 'danger',
+  }
   return types[status] || 'info'
 }
 
 const getStatusText = (status) => {
-  const texts = { pending: '待处理', processing: '处理中', completed: '已完成', failed: '失败' }
+  const texts = {
+    pending: '待处理',
+    processing: '处理中',
+    completed: '已完成',
+    failed: '失败',
+    pending_review: '待审核',
+    rejected: '已拒绝',
+  }
   return texts[status] || status
 }
 

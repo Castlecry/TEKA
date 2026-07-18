@@ -55,6 +55,7 @@ class AgentState(TypedDict):
     tool_calls: List[Dict[str, Any]]     # 待执行的工具调用列表
     tool_results: List[Dict[str, Any]]   # 工具执行结果
     final_answer: str                    # 最终回答
+    attachments: List[Dict[str, Any]]    # 附件列表（如生成的文档）
     iteration: int                       # 当前迭代次数
     reflection_passed: bool              # 反思是否通过
     reflection_reason: str               # 反思原因（未通过时）
@@ -110,14 +111,27 @@ def analyze_query(state: AgentState) -> AgentState:
 1. search_knowledge_base - 搜索本地知识库（参数: query, top_k）
    - 非自由问答模块（规章制度/产品技术/行政服务）必须使用此工具搜索对应模块知识
    - 自由问答模块可同时搜索多个知识库
-2. web_search - 搜索互联网（参数: query, count）
+2. search_document_by_title - 按文档标题精确查找（参数: title, knowledge_base_id）
+   - 当用户明确提到某个文档名称时使用，如"帮我找一下《员工手册》"
+3. list_documents - 列出知识库中的文档（参数: knowledge_base_id, limit）
+   - 当用户想浏览知识库内容、了解有哪些文档时使用
+4. get_document_summary - 获取文档摘要（参数: document_id, filename）
+   - 当用户想快速了解某份文档的核心内容时使用
+5. keyword_highlight_search - BM25关键词精确搜索（参数: query, top_k）
+   - 查找专业术语、编号、人名等精确内容时使用，补充向量搜索的不足
+6. rewrite_query - 查询重写优化（参数: query, strategy）
+   - 当问题表述不清、口语化、有省略时，先重写再搜索，提升准确率
+   - strategy: expand(扩展相关词) / simplify(简化) / professional(专业化)
+7. generate_followup_questions - 生成追问建议（参数: query, answer, count）
+   - 回答完问题后，生成用户可能想问的后续问题建议
+8. web_search - 搜索互联网（参数: query, count）
    - 当知识库信息不足时使用
    - 非自由问答模块仅在知识库无结果时才使用
-3. calculate - 数学计算（参数: expression）
-4. get_current_date - 获取当前系统日期时间（无参数）
+9. calculate - 数学计算（参数: expression）
+10. get_current_date - 获取当前系统日期时间（无参数）
    - 涉及"今天"、"现在"、"最新"、"当前"、"近期"等时间相关问题时必须先调用
-5. get_system_info - 获取系统信息（无参数）
-6. create_document - 生成 Word/PDF 文档（参数: content, format, title）
+11. get_system_info - 获取系统信息（无参数）
+12. create_document - 生成 Word/PDF 文档（参数: content, format, title）
    - 当用户要求导出/下载/生成文档时使用"""
 
     system_prompt = f"""你是一个智能任务分析器。当前模块：{module_name}。分析用户的问题，决定需要使用哪些工具。
@@ -189,6 +203,7 @@ def execute_tools_node(state: AgentState) -> AgentState:
     tool_calls = state.get("tool_calls", [])
     tool_results = []
     module = state.get("module", "general")
+    attachments = state.get("attachments", [])
 
     for tool_call in tool_calls:
         tool_name = tool_call.get("tool", "")
@@ -196,15 +211,44 @@ def execute_tools_node(state: AgentState) -> AgentState:
 
         print(f"[LangGraph] 执行工具: {tool_name}, 参数: {tool_args}")
 
-        # 特殊处理：知识库搜索需要传入模块信息
+        # 特殊处理：知识库相关工具需要传入模块/知识库过滤信息
         if tool_name == "search_knowledge_base":
             result = _search_knowledge_base(
                 query=tool_args.get("query", ""),
                 top_k=tool_args.get("top_k", TOP_K),
                 knowledge_base_ids=state.get("knowledge_base_ids"),
             )
+        elif tool_name == "keyword_highlight_search":
+            result = _keyword_highlight_search(
+                query=tool_args.get("query", ""),
+                top_k=tool_args.get("top_k", TOP_K),
+                knowledge_base_ids=state.get("knowledge_base_ids"),
+            )
+        elif tool_name == "search_document_by_title":
+            result = _search_document_by_title_with_kb(
+                title=tool_args.get("title", ""),
+                knowledge_base_ids=state.get("knowledge_base_ids"),
+            )
+        elif tool_name == "list_documents":
+            result = _list_documents_with_kb(
+                knowledge_base_id=tool_args.get("knowledge_base_id"),
+                limit=tool_args.get("limit", 20),
+                knowledge_base_ids=state.get("knowledge_base_ids"),
+            )
         else:
             result = execute_tool(tool_name, tool_args)
+
+        # 收集 create_document 工具的附件
+        if tool_name == "create_document" and result.get("success"):
+            data = result.get("data", {})
+            if "file_id" in data:
+                attachments.append({
+                    "file_id": data["file_id"],
+                    "filename": data["filename"],
+                    "format": data["format"],
+                    "size_kb": data["size_kb"],
+                    "download_url": data["download_url"],
+                })
 
         tool_results.append({
             "tool": tool_name,
@@ -212,6 +256,7 @@ def execute_tools_node(state: AgentState) -> AgentState:
         })
 
     state["tool_results"] = tool_results
+    state["attachments"] = attachments
     state["next_action"] = "answer"
     return state
 
@@ -237,6 +282,148 @@ def _search_knowledge_base(query: str, top_k: int = TOP_K, knowledge_base_ids: l
                 "message": "知识库中未找到相关信息",
             }
         }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _keyword_highlight_search(query: str, top_k: int = TOP_K, knowledge_base_ids: list = None) -> dict:
+    """BM25关键词搜索（带知识库过滤）"""
+    try:
+        from opensearch_store import _client, ensure_index, OPENSEARCH_INDEX
+        ensure_index()
+
+        bm25_query = {
+            "multi_match": {
+                "query": query,
+                "fields": ["content"],
+                "type": "best_fields",
+                "minimum_should_match": "50%",
+            }
+        }
+        if knowledge_base_ids:
+            bm25_query = {
+                "bool": {
+                    "must": [bm25_query],
+                    "filter": [{"terms": {"knowledge_base_id": knowledge_base_ids}}],
+                }
+            }
+
+        bm25_body = {
+            "size": top_k * 2,
+            "query": bm25_query,
+            "highlight": {
+                "fields": {
+                    "content": {
+                        "pre_tags": ["<mark>"],
+                        "post_tags": ["</mark>"],
+                        "fragment_size": 150,
+                        "number_of_fragments": 3,
+                    }
+                }
+            },
+        }
+        resp = _client.search(index=OPENSEARCH_INDEX, body=bm25_body)
+        hits = resp["hits"]["hits"]
+
+        results = []
+        for h in hits[:top_k]:
+            source = h["_source"]
+            highlights = h.get("highlight", {}).get("content", [])
+            highlight_text = " ... ".join(highlights) if highlights else source["content"][:300]
+            results.append({
+                "content": source["content"],
+                "highlight": highlight_text,
+                "source": source.get("source", ""),
+                "score": h["_score"],
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "results": results,
+                "count": len(results),
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _search_document_by_title_with_kb(title: str, knowledge_base_ids: list = None) -> dict:
+    """按标题查找文档（带知识库过滤）"""
+    try:
+        from app.database import SessionLocal
+        from app.models import Document
+        db = SessionLocal()
+        try:
+            query = db.query(Document).filter(Document.filename.contains(title))
+            if knowledge_base_ids:
+                query = query.filter(Document.knowledge_base_id.in_(knowledge_base_ids))
+            query = query.filter(Document.status == "completed")
+            docs = query.order_by(Document.uploaded_at.desc()).limit(10).all()
+            return {
+                "success": True,
+                "data": {
+                    "results": [
+                        {
+                            "id": d.id,
+                            "filename": d.filename,
+                            "knowledge_base_id": d.knowledge_base_id,
+                            "size": d.size,
+                            "chunk_count": d.chunk_count,
+                            "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else "",
+                        }
+                        for d in docs
+                    ],
+                    "count": len(docs),
+                }
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _list_documents_with_kb(knowledge_base_id: int = None, limit: int = 20, knowledge_base_ids: list = None) -> dict:
+    """列出文档（带知识库过滤）"""
+    try:
+        from app.database import SessionLocal
+        from app.models import Document, KnowledgeBase
+        db = SessionLocal()
+        try:
+            query = db.query(Document).filter(Document.status == "completed")
+            if knowledge_base_id:
+                query = query.filter(Document.knowledge_base_id == knowledge_base_id)
+            elif knowledge_base_ids:
+                query = query.filter(Document.knowledge_base_id.in_(knowledge_base_ids))
+            docs = query.order_by(Document.uploaded_at.desc()).limit(limit).all()
+
+            kb_info = None
+            if knowledge_base_id:
+                kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == knowledge_base_id).first()
+                if kb:
+                    kb_info = {"id": kb.id, "name": kb.name, "description": kb.description}
+
+            return {
+                "success": True,
+                "data": {
+                    "knowledge_base": kb_info,
+                    "results": [
+                        {
+                            "id": d.id,
+                            "filename": d.filename,
+                            "knowledge_base_id": d.knowledge_base_id,
+                            "size": d.size,
+                            "chunk_count": d.chunk_count,
+                            "file_type": d.file_type,
+                            "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else "",
+                        }
+                        for d in docs
+                    ],
+                    "count": len(docs),
+                }
+            }
+        finally:
+            db.close()
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -515,7 +702,7 @@ def create_agent_graph():
 # ── 入口 ──────────────────────────────────────────────────────────────────
 
 def run_agent(query: str, session_id: str = "default", stream_callback=None,
-              module: str = "general", knowledge_base_ids: list = None) -> str:
+              module: str = "general", knowledge_base_ids: list = None) -> dict:
     """运行增强版 LangGraph 智能体
 
     Args:
@@ -524,6 +711,9 @@ def run_agent(query: str, session_id: str = "default", stream_callback=None,
         stream_callback: 可选的流式回调函数
         module: 当前模块 (policy/tech/admin/general)
         knowledge_base_ids: 限定的知识库 ID 列表
+
+    Returns:
+        {"answer": "最终回答", "attachments": [附件列表]}
     """
     # 加载对话历史
     try:
@@ -545,6 +735,7 @@ def run_agent(query: str, session_id: str = "default", stream_callback=None,
         "tool_calls": [],
         "tool_results": [],
         "final_answer": "",
+        "attachments": [],
         "iteration": 0,
         "reflection_passed": True,
         "reflection_reason": "",
@@ -557,9 +748,10 @@ def run_agent(query: str, session_id: str = "default", stream_callback=None,
     try:
         final_state = graph.invoke(initial_state)
         answer = final_state.get("final_answer", "抱歉，我无法回答这个问题。")
-        print(f"[LangGraph] 生成答案完成，共 {len(answer)} 字符\n")
-        return answer
+        attachments = final_state.get("attachments", [])
+        print(f"[LangGraph] 生成答案完成，共 {len(answer)} 字符，附件 {len(attachments)} 个\n")
+        return {"answer": answer, "attachments": attachments}
     except Exception as e:
         error_msg = f"LangGraph 智能体执行失败: {str(e)}"
         print(f"[LangGraph] {error_msg}")
-        return error_msg
+        return {"answer": error_msg, "attachments": []}

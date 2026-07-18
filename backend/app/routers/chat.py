@@ -40,6 +40,12 @@ async def send_message(
     if not allowed:
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
 
+    # 用户提问内容审核（关键词快速扫描）
+    from content_moderator import moderate_chat_query, moderate_chat_answer
+    query_audit = moderate_chat_query(message.message)
+    if query_audit["verdict"] == "BLOCK":
+        raise HTTPException(status_code=400, detail=f"提问内容不合规: {'; '.join(query_audit['reasons'])}")
+
     # 追踪热门问题
     _redis_cache.track_question(message.message)
 
@@ -92,8 +98,13 @@ async def send_message(
                 module=message.module or "general",
                 knowledge_base_ids=message.knowledge_base_ids or None,
             )
+        # 提取回答文本
+        if isinstance(response, dict):
+            answer_text = response.get("answer", str(response))
+        else:
+            answer_text = str(response)
         _conv_store.save_message(scoped_id, "user", message.message)
-        _conv_store.save_message(scoped_id, "assistant", response)
+        _conv_store.save_message(scoped_id, "assistant", answer_text)
     else:
         # 默认RAG模式（rag_chain 内部自动保存对话到 Redis）
         response = _rag_chain.rag_query(
@@ -141,6 +152,12 @@ async def send_message_stream(
     allowed, remaining = _redis_cache.check_rate_limit(current_user.id)
     if not allowed:
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+
+    # 用户提问内容审核（关键词快速扫描）
+    from content_moderator import moderate_chat_query
+    query_audit = moderate_chat_query(message.message)
+    if query_audit["verdict"] == "BLOCK":
+        raise HTTPException(status_code=400, detail=f"提问内容不合规: {'; '.join(query_audit['reasons'])}")
 
     _redis_cache.track_question(message.message)
     conversation_id = message.conversation_id or str(uuid.uuid4())
@@ -198,12 +215,20 @@ async def send_message_stream(
                     _full_answer.append(answer)
                     _loop.call_soon_threadsafe(_queue.put_nowait, {"type": "content", "text": answer})
             elif message.mode == "langgraph" and provider != "local":
-                answer = await asyncio.to_thread(
+                result = await asyncio.to_thread(
                     run_agent,
                     message.message, scoped_id, on_token,
                     module=message.module or "general",
                     knowledge_base_ids=_kb_ids or None,
                 )
+                if isinstance(result, dict):
+                    answer = result.get("answer", "")
+                    _attachments.extend(result.get("attachments", []))
+                else:
+                    answer = str(result)
+
+                _try_rescue_document_hallucination(answer, _attachments, message.message)
+
                 _conv_store.save_message(scoped_id, "user", message.message)
                 _conv_store.save_message(scoped_id, "assistant", answer)
                 if not _full_answer:
@@ -305,10 +330,11 @@ async def upload_and_ask(
     file: UploadFile = File(...),
     message: str = "请分析这个文件的内容",
     conversation_id: Optional[str] = None,
+    module: str = "general",
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """上传文件并提问——通过 MinerU 解析后结合 RAG 回答"""
+    """上传文件并提问——解析后结合 RAG 回答"""
     import tempfile
     from document_parser import parse_document
 
@@ -319,7 +345,6 @@ async def upload_and_ask(
         tmp_path = tmp.name
 
     try:
-        # 解析文件内容
         parsed_content = parse_document(tmp_path)
     except Exception as e:
         os.unlink(tmp_path)
@@ -327,7 +352,9 @@ async def upload_and_ask(
 
     os.unlink(tmp_path)
 
-    # 构建查询：将文件内容作为上下文，用户消息作为问题
+    if not parsed_content or not parsed_content.strip():
+        raise HTTPException(status_code=400, detail="文件内容为空，无法解析")
+
     full_query = f"文件内容：\n{parsed_content[:4000]}\n\n用户问题：{message}"
 
     conv_id = conversation_id or str(uuid.uuid4())
@@ -350,7 +377,7 @@ async def upload_and_ask(
         answer=answer_text,
         sources=[],
         knowledge_base_ids=[],
-        module=message.module or "general",
+        module=module or "general",
     )
     db.add(db_log)
     db.commit()
@@ -368,8 +395,21 @@ async def get_conversation_history(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    is_admin = current_user.role and "all" in (current_user.role.permissions or [])
-    scoped_id = f"{current_user.id}:{conversation_id}" if not is_admin else conversation_id
+    # 从 PostgreSQL 查找该会话的原始 user_id，确保 Redis key 的 scoped_id 与保存时一致
+    log = (
+        db.query(models.ConversationLog)
+        .filter(models.ConversationLog.conversation_id == conversation_id)
+        .order_by(models.ConversationLog.created_at.asc())
+        .first()
+    )
+
+    if log and log.user_id:
+        # 用原始创建者的 user_id 构造 scoped_id（与 save_message 时一致）
+        scoped_id = f"{log.user_id}:{conversation_id}"
+    else:
+        # 兜底：用当前用户构造
+        scoped_id = f"{current_user.id}:{conversation_id}"
+
     history = _conv_store.get_history(scoped_id)
     return {"conversation_id": conversation_id, "history": history}
 
