@@ -701,47 +701,69 @@ AI的回答：{answer[:2000]}
 def _parse_dsml_tool_calls(content: str) -> list:
     """
     解析 DeepSeek DSML 格式的工具调用
-    格式示例（注意空格变化）：
-    <| | DSML | | tool_calls>
-    <| | DSML | | invoke name="web_search">
-    <| | DSML | | parameter name="query" string="true">公司报税</| | DSML | | parameter>
-    </| | DSML | | invoke>
-    </| | DSML | | tool_calls>
+    支持全角｜和半角|、单个和多个竖线
+    支持并列多工具调用和嵌套 invoke（取最内层）
     """
+    import re as _re
+
     tool_calls = []
-    
-    # 匹配所有 invoke 块（兼容多种空格格式）
-    invoke_pattern = r'<\|[\s|]*DSML[\s|]*\|[\s|]*invoke\s+name="([^"]+)"[\s|]*>(.*?)</\|[\s|]*DSML[\s|]*\|[\s|]*invoke[\s|]*>'
-    invokes = re.findall(invoke_pattern, content, re.DOTALL)
-    
-    for tool_name, params_str in invokes:
-        # 解析参数
-        params = {}
-        param_pattern = r'<\|[\s|]*DSML[\s|]*\|[\s|]*parameter\s+name="([^"]+)"[^>]*>(.*?)</\|[\s|]*DSML[\s|]*\|[\s|]*parameter[\s|]*>'
-        param_matches = re.findall(param_pattern, params_str, re.DOTALL)
-        
-        for param_name, param_value in param_matches:
-            # 尝试解析 JSON
-            try:
-                params[param_name] = json.loads(param_value.strip())
-            except json.JSONDecodeError:
-                params[param_name] = param_value.strip()
-        
-        tool_calls.append({
-            "id": str(uuid.uuid4()),
-            "function": {
-                "name": tool_name,
-                "arguments": json.dumps(params, ensure_ascii=False)
-            }
-        })
-    
-    return tool_calls
+
+    # 先提取 tool_calls 块的内容
+    tool_calls_pattern = r'<[|｜][\s|｜]*DSML[\s|｜]*[|｜][\s|｜]*tool_calls[\s|｜]*>(.*?)</[|｜][\s|｜]*DSML[\s|｜]*[|｜][\s|｜]*tool_calls[\s|｜]*>'
+    tool_calls_matches = _re.findall(tool_calls_pattern, content, _re.DOTALL)
+
+    for block in tool_calls_matches:
+        # 找到所有 invoke 开始标签和对应的参数
+        # 策略：找到最内层的 invoke（即包含 parameter 的那些）
+        invoke_pattern = r'<[|｜][\s|｜]*DSML[\s|｜]*[|｜][^\n>]*invoke\s+name="([^"]+)"[^>]*>(.*?)</[|｜][\s|｜]*DSML[\s|｜]*[|｜][^\n>]*invoke[^>]*>'
+        all_invokes = _re.findall(invoke_pattern, block, _re.DOTALL)
+
+        # 筛选出有 parameter 的 invoke（真正的工具调用，不是嵌套的外壳）
+        for tool_name, inner_content in all_invokes:
+            # 提取参数
+            param_pattern = r'<[|｜][\s|｜]*DSML[\s|｜]*[|｜][^\n>]*parameter\s+name="([^"]+)"[^>]*>(.*?)</[|｜][\s|｜]*DSML[\s|｜]*[|｜][^\n>]*parameter[^>]*>'
+            params = {}
+            param_matches = _re.findall(param_pattern, inner_content, _re.DOTALL)
+            for param_name, param_value in param_matches:
+                value = param_value.strip()
+                # 尝试解析 JSON
+                try:
+                    params[param_name] = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    params[param_name] = value
+
+            # 只有包含 parameter 的才是真正的工具调用
+            # 或者 inner_content 里没有更多 invoke（最内层）
+            has_inner_invoke = _re.search(
+                r'<[|｜][\s|｜]*DSML[\s|｜]*[|｜][^\n>]*invoke',
+                inner_content
+            )
+            if params or not has_inner_invoke:
+                tool_calls.append({
+                    "id": str(uuid.uuid4()),
+                    "function": {
+                        "name": tool_name,
+                        "arguments": json.dumps(params, ensure_ascii=False)
+                    }
+                })
+
+    # 去重（按工具名+参数）
+    seen = set()
+    unique_calls = []
+    for tc in tool_calls:
+        key = tc["function"]["name"] + "|" + tc["function"]["arguments"]
+        if key not in seen:
+            seen.add(key)
+            unique_calls.append(tc)
+
+    return unique_calls
 
 
 def agent_with_tools(query: str, session_id: str = "default", stream_callback=None) -> dict:
     """
-    Agent with Function Calling
-    让LLM自主决定调用哪些工具来回答问题
+    Agent with Function Calling（多轮循环版本）
+    让 LLM 自主决定调用哪些工具来回答问题
+    支持多轮工具调用（最多 8 轮）
 
     Args:
         query: 用户查询
@@ -806,92 +828,136 @@ def agent_with_tools(query: str, session_id: str = "default", stream_callback=No
     messages.append({"role": "user", "content": query})
 
     attachments: list[dict] = []
+    max_iterations = 8
+    final_answer = ""
 
-    try:
-        response = _safe_request(
-            "POST",
-            f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
-            max_retries=3,
-            headers=headers,
-            json={
-                "model": LLM_MODEL,
-                "messages": messages,
-                "tools": TOOLS,
-                "tool_choice": "auto"
-            },
-            timeout=60
-        )
-        response.raise_for_status()
-    except Exception as e:
-        error_msg = f"调用模型失败: {str(e)}"
-        print(f"[Agent] {error_msg}")
-        return {"answer": error_msg, "attachments": []}
+    # 多轮工具调用循环
+    for iteration in range(max_iterations):
+        try:
+            response = _safe_request(
+                "POST",
+                f"{DEEPSEEK_BASE_URL}/v1/chat/completions",
+                max_retries=3,
+                headers=headers,
+                json={
+                    "model": LLM_MODEL,
+                    "messages": messages,
+                    "tools": TOOLS,
+                    "tool_choice": "auto"
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+        except Exception as e:
+            error_msg = f"调用模型失败: {str(e)}"
+            print(f"[Agent] {error_msg}")
+            return {"answer": error_msg, "attachments": []}
 
-    result = response.json()
-    if "choices" not in result or not result["choices"]:
-        return {"answer": "抱歉，模型暂时无法响应，请稍后再试。", "attachments": []}
+        result = response.json()
+        if "choices" not in result or not result["choices"]:
+            return {"answer": "抱歉，模型暂时无法响应，请稍后再试。", "attachments": []}
 
-    message = result["choices"][0]["message"]
+        message = result["choices"][0]["message"]
+        tool_calls = message.get("tool_calls") or []
 
-    # 优先检查 OpenAI 标准 tool_calls 字段
-    tool_calls = message.get("tool_calls") or []
+        # 如果没有标准 tool_calls，尝试从 content 中解析 DSML 格式
+        if not tool_calls:
+            content = message.get("content", "")
+            if "DSML" in content and ("invoke" in content or "tool_calls" in content):
+                tool_calls = _parse_dsml_tool_calls(content)
+                # 从 content 中移除 DSML 工具调用块
+                content = re.sub(
+                    r'<[|｜][\s|｜]*DSML[\s|｜]*[|｜][\s|｜]*tool_calls[\s|｜]*>.*?</[|｜][\s|｜]*DSML[\s|｜]*[|｜][\s|｜]*tool_calls[\s|｜]*>',
+                    '', content, flags=re.DOTALL
+                ).strip()
+                message["content"] = content
 
-    # 如果没有标准 tool_calls，尝试从 content 中解析 DSML 格式
-    if not tool_calls:
-        content = message.get("content", "")
-        if "<|DSML|" in content or "<| | DSML |" in content:
-            tool_calls = _parse_dsml_tool_calls(content)
-            # 从 content 中移除 DSML 工具调用块，保留普通文本
-            content = re.sub(
-                r'<\|[\s|]*DSML[\s|]*\|[\s|]*tool_calls[\s|]*>.*?</\|[\s|]*DSML[\s|]*\|[\s|]*tool_calls[\s|]*>',
-                '', content, flags=re.DOTALL
-            ).strip()
-            message["content"] = content
+        # 如果没有工具调用，说明模型已经给出最终回答
+        if not tool_calls:
+            raw_content = message.get("content", "抱歉，我无法回答这个问题。")
+            # 关键修复：确保 final_answer 始终是字符串
+            if isinstance(raw_content, dict):
+                # 处理 content 是 dict 的情况（如某些特殊 API 返回格式）
+                final_answer = (
+                    raw_content.get("text")
+                    or raw_content.get("content")
+                    or json.dumps(raw_content, ensure_ascii=False)
+                )
+            elif isinstance(raw_content, list):
+                final_answer = "\n".join(str(item) for item in raw_content)
+            else:
+                final_answer = str(raw_content) if raw_content is not None else "抱歉，我无法回答这个问题。"
+            # 流式输出最终回答
+            if stream_callback and final_answer:
+                stream_callback("content", final_answer)
+            break
 
-    # 检查是否有工具调用
-    if tool_calls:
+        # 有工具调用，执行工具
+        print(f"[Agent] 第 {iteration + 1} 轮，调用 {len(tool_calls)} 个工具")
         messages.append(message)
 
-        # 执行每个工具调用
         for tool_call in tool_calls:
-            tool_name = tool_call["function"]["name"]
+            # 防御性：tool_call 可能是 dict 或对象，统一转 dict
+            if not isinstance(tool_call, dict):
+                try:
+                    tool_call = dict(tool_call) if hasattr(tool_call, '__dict__') else tool_call
+                except Exception:
+                    print(f"[Agent-DEBUG] 无法解析 tool_call: {repr(tool_call)[:200]}")
+                    continue
+            func = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+            if not isinstance(func, dict):
+                func = {}
+            tool_name = func.get("name", "")
+            raw_args = func.get("arguments", "{}")
             try:
-                tool_args = json.loads(tool_call["function"]["arguments"])
-            except json.JSONDecodeError:
+                if isinstance(raw_args, str):
+                    tool_args = json.loads(raw_args)
+                elif isinstance(raw_args, dict):
+                    tool_args = raw_args
+                else:
+                    tool_args = {}
+            except (json.JSONDecodeError, TypeError):
                 tool_args = {}
 
-            print(f"[Agent] 调用工具: {tool_name}, 参数: {tool_args}")
+            print(f"[Agent]   调用工具: {tool_name}, 参数: {tool_args}")
 
             tool_result = execute_tool(tool_name, tool_args)
 
             # 收集 create_document 工具的附件
-            if tool_name == "create_document" and tool_result.get("success"):
+            if tool_name == "create_document" and isinstance(tool_result, dict) and tool_result.get("success"):
                 data = tool_result.get("data", {})
-                if "file_id" in data:
+                if isinstance(data, dict) and "file_id" in data:
                     attachments.append({
                         "file_id": data["file_id"],
-                        "filename": data["filename"],
-                        "format": data["format"],
-                        "size_kb": data["size_kb"],
-                        "download_url": data["download_url"],
+                        "filename": data.get("filename", "document"),
+                        "format": data.get("format", "word"),
+                        "size_kb": data.get("size_kb", 0),
+                        "download_url": data.get("download_url", ""),
                     })
 
+            # 关键修复：确保 tool result 序列化为字符串，避免对象被字符串拼接时变成 [object Object]
+            try:
+                tool_result_str = json.dumps(tool_result, ensure_ascii=False)
+            except (TypeError, ValueError):
+                tool_result_str = str(tool_result)
             messages.append({
                 "role": "tool",
-                "tool_call_id": tool_call["id"],
-                "content": json.dumps(tool_result, ensure_ascii=False)
+                "tool_call_id": tool_call.get("id", "") if isinstance(tool_call, dict) else "",
+                "content": tool_result_str
             })
-
-        # 第二轮：让LLM基于工具结果生成最终回答
-        final_answer = _generate_with_messages(headers, messages, stream_callback)
-        return {"answer": final_answer, "attachments": attachments}
-
     else:
-        # 没有工具调用，直接返回回答
-        content = message.get("content", "抱歉，我无法回答这个问题。")
-        if stream_callback:
-            stream_callback("content", content)
-        return {"answer": content, "attachments": []}
+        # 超过最大迭代次数
+        raw_content = message.get("content", "抱歉，处理时间过长，请简化问题后再试。")
+        if isinstance(raw_content, dict):
+            final_answer = raw_content.get("text") or raw_content.get("content") or json.dumps(raw_content, ensure_ascii=False)
+        elif isinstance(raw_content, list):
+            final_answer = "\n".join(str(item) for item in raw_content)
+        else:
+            final_answer = str(raw_content) if raw_content is not None else "抱歉，处理时间过长，请简化问题后再试。"
+        if stream_callback and final_answer:
+            stream_callback("content", final_answer)
+
+    return {"answer": final_answer, "attachments": attachments}
 
 
 def _generate_with_messages(headers: dict, messages: list, stream_callback=None) -> str:

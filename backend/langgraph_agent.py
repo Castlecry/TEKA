@@ -13,6 +13,7 @@ from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL, TOP_K
 from agent_tools import execute_tool, TOOLS
 from llm_client import _safe_request
 from opensearch_store import search as vector_search
+from persona_system import build_system_prompt, build_few_shot_messages
 import json
 
 
@@ -442,8 +443,8 @@ def generate_answer(state: AgentState) -> AgentState:
         "Content-Type": "application/json",
     }
 
-    # 获取模块对应的系统 prompt
-    system_prompt = MODULE_SYSTEM_PROMPTS.get(module, MODULE_SYSTEM_PROMPTS["general"])
+    # 使用人设系统生成企业级系统 prompt
+    system_prompt = build_system_prompt(module)
 
     # 构建包含工具结果的上下文
     context_parts = []

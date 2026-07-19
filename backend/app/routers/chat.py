@@ -139,7 +139,24 @@ async def send_message(
     db.add(db_log)
     db.commit()
 
-    return {"answer": response, "sources": sources, "conversation_id": conversation_id}
+    # 关键修复：answer 字段必须返回字符串，不能返回 dict/list
+    # agent_with_tools 和 run_agent 返回 {"answer": str, "attachments": list}
+    if isinstance(response, dict):
+        final_answer = response.get("answer", "")
+        # 防止 answer 字段本身是 dict/list
+        if not isinstance(final_answer, str):
+            if isinstance(final_answer, dict):
+                final_answer = final_answer.get("text") or final_answer.get("content") or json.dumps(final_answer, ensure_ascii=False)
+            elif isinstance(final_answer, list):
+                final_answer = "\n".join(str(item) for item in final_answer)
+            else:
+                final_answer = str(final_answer)
+        final_attachments = response.get("attachments", [])
+    else:
+        final_answer = str(response) if response is not None else ""
+        final_attachments = []
+
+    return {"answer": final_answer, "sources": sources, "conversation_id": conversation_id, "attachments": final_attachments}
 
 
 @router.post("/stream")
@@ -191,9 +208,19 @@ async def send_message_stream(
                 _full_answer.append(token)
             # 跨线程安全：使用 call_soon_threadsafe 把 put_nowait 调度到事件循环
             try:
-                _loop.call_soon_threadsafe(_queue.put_nowait, {"type": chunk_type, "text": token})
-            except Exception:
-                pass
+                # 防御性：确保 token 是字符串，避免对象/None 被序列化
+                if not isinstance(token, str):
+                    if isinstance(token, dict):
+                        safe_token = token.get("text") or token.get("content") or json.dumps(token, ensure_ascii=False)
+                    elif isinstance(token, list):
+                        safe_token = "\n".join(str(item) for item in token)
+                    else:
+                        safe_token = str(token) if token is not None else ""
+                else:
+                    safe_token = token
+                _loop.call_soon_threadsafe(_queue.put_nowait, {"type": chunk_type, "text": safe_token})
+            except Exception as e:
+                print(f"[Stream] on_token 异常: {e}")
 
         try:
             if message.mode == "agent" and provider != "local":

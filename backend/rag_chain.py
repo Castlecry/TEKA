@@ -10,6 +10,7 @@ from query_rewriter import rewrite_query
 from reranker import rerank_chunks
 from llm_client import chat_completion
 from redis_cache import get_search_cache, set_search_cache
+from persona_system import build_system_prompt, build_few_shot_messages
 
 
 def _safe_print(*args, **kwargs):
@@ -28,25 +29,6 @@ MODULE_DESCRIPTIONS = {
     "tech": "产品技术",
     "admin": "行政服务",
     "general": "自由问答",
-}
-
-# 各模块的 System Prompt（非自由问答模块限定回答范围）
-MODULE_SYSTEM_PROMPTS = {
-    "policy": """你是一个企业规章制度助手，专注于回答与企业规章制度、流程规范、管理制度相关的问题。
-你的职责范围：报销流程、请假制度、考勤规定、差旅标准、加班申请、合同管理、奖惩条例、晋升通道、培训制度等。
-如果用户的问题不属于规章制度范畴（如天气、闲聊、技术问题等），请礼貌地说明这超出了你的职责范围，并建议用户切换到"自由问答"模块。
-请优先使用本地知识库的参考资料回答，回答时请引用来源。""",
-    "tech": """你是一个产品技术助手，专注于回答与技术文档、产品手册、API说明、开发规范相关的问题。
-你的职责范围：系统架构、API接口、数据库设计、部署运维、安全规范、性能优化、故障排查、CI/CD、微服务等。
-如果用户的问题不属于技术范畴（如天气、闲聊、行政制度等），请礼貌地说明这超出了你的职责范围，并建议用户切换到对应模块。
-请优先使用本地知识库的参考资料回答，回答时请引用来源。""",
-    "admin": """你是一个行政服务助手，专注于回答与办公场地、IT支持、福利政策、行政事务相关的问题。
-你的职责范围：办公场地申请、IT设备报修、员工福利、会议室预定、办公用品领取、考勤管理、差旅报销、员工入离职等。
-如果用户的问题不属于行政服务范畴（如天气、闲聊、技术架构等），请礼貌地说明这超出了你的职责范围，并建议用户切换到对应模块。
-请优先使用本地知识库的参考资料回答，回答时请引用来源。""",
-    "general": """你是一个智能助手，基于检索到的信息回答问题。
-请优先使用本地知识库的参考资料回答，如果本地资料不足以回答，可以结合联网搜索结果补充。
-回答时请引用来源。如果参考资料中没有相关信息，请明确说明。""",
 }
 
 _MAX_CONTEXT_LENGTH = 8000
@@ -78,8 +60,8 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
         module: 当前模块 (policy/tech/admin/general)
         knowledge_base_ids: 限定的知识库 ID 列表，None 表示按模块自动选择
     """
-    # 获取系统 prompt
-    system_prompt = MODULE_SYSTEM_PROMPTS.get(module, MODULE_SYSTEM_PROMPTS["general"])
+    # 获取系统 prompt（人设系统生成
+    system_prompt = build_system_prompt(module)
 
     # 1. 查询重述
     search_query = query
@@ -126,7 +108,12 @@ def rag_query(query: str, session_id: str = "default", use_web: bool = False,
 
     # 7. 构建消息列表（计算 token 消耗，避免超过限制）
     messages = [{"role": "system", "content": system_prompt}]
-    
+
+    # 加入少样本示例（Few-shot），帮助模型理解输出风格
+    few_shot_msgs = build_few_shot_messages(module)
+    for msg in few_shot_msgs:
+        messages.append(msg)
+
     history_text = ""
     for msg in history:
         msg_text = f"{msg['role']}: {msg['content']}\n"
